@@ -1,0 +1,15 @@
+{
+  "name": "@ldesign/deployer",
+  "version": "0.1.0",
+  "description": "LDesign 部署工具 - Docker/K8s 部署、CI/CD 模板",
+  "keywords": ["ldesign", "deploy", "docker", "kubernetes", "ci-cd"],
+  "author": "LDesign Team",
+  "license": "MIT",
+  "type": "module",
+  "main": "./lib/index.cjs",
+  "module": "./es/index.js",
+  "scripts": {"build": "ldesign-builder build -f esm,cjs,dts"},
+  "dependencies": {"@ldesign/kit": "workspace:*", "@ldesign/logger": "workspace:*"},
+  "devDependencies": {"@ldesign/builder": "workspace:*", "typescript": "^5.7.3"}
+}
+
