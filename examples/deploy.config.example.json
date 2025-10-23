@@ -1,0 +1,116 @@
+{
+  "name": "my-app",
+  "version": "1.0.0",
+  "environment": "production",
+  "platform": "kubernetes",
+  "projectType": "node",
+  "workDir": ".",
+  "outputDir": "./dist",
+  "env": [
+    {
+      "name": "NODE_ENV",
+      "value": "production"
+    },
+    {
+      "name": "PORT",
+      "value": "3000"
+    }
+  ],
+  "secrets": [
+    {
+      "name": "DATABASE_URL",
+      "value": "postgresql://user:pass@localhost:5432/db",
+      "encrypted": false
+    }
+  ],
+  "docker": {
+    "image": "my-app",
+    "tag": "latest",
+    "registry": "docker.io",
+    "multiStage": true,
+    "cache": true,
+    "buildArgs": {
+      "NODE_VERSION": "20"
+    }
+  },
+  "kubernetes": {
+    "namespace": "default",
+    "deployment": {
+      "replicas": 3,
+      "strategy": {
+        "type": "RollingUpdate",
+        "rollingUpdate": {
+          "maxSurge": 1,
+          "maxUnavailable": 0
+        }
+      },
+      "resources": {
+        "requests": {
+          "cpu": "100m",
+          "memory": "128Mi"
+        },
+        "limits": {
+          "cpu": "500m",
+          "memory": "512Mi"
+        }
+      },
+      "livenessProbe": {
+        "httpGet": {
+          "path": "/health",
+          "port": 3000
+        },
+        "initialDelaySeconds": 30,
+        "periodSeconds": 10
+      },
+      "readinessProbe": {
+        "httpGet": {
+          "path": "/ready",
+          "port": 3000
+        },
+        "initialDelaySeconds": 5,
+        "periodSeconds": 5
+      }
+    },
+    "service": {
+      "type": "ClusterIP",
+      "port": 80,
+      "targetPort": 3000
+    },
+    "ingress": {
+      "enabled": true,
+      "className": "nginx",
+      "host": "my-app.example.com",
+      "path": "/",
+      "tls": {
+        "enabled": true,
+        "secretName": "my-app-tls"
+      },
+      "annotations": {
+        "cert-manager.io/cluster-issuer": "letsencrypt-prod"
+      }
+    }
+  },
+  "healthCheck": {
+    "enabled": true,
+    "path": "/health",
+    "port": 3000,
+    "interval": 30,
+    "timeout": 5,
+    "retries": 3,
+    "startPeriod": 60
+  },
+  "hooks": {
+    "preDeploy": [
+      "npm run test",
+      "npm run lint"
+    ],
+    "postDeploy": [
+      "echo 'Deployment completed'",
+      "curl -X POST https://api.example.com/webhooks/deploy"
+    ]
+  }
+}
+
+
+
+

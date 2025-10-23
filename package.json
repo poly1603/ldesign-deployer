@@ -1,17 +1,62 @@
 {
   "name": "@ldesign/deployer",
-  "version": "0.1.0",
-  "description": "LDesign 部署工具 - Docker/K8s 部署、CI/CD 模板",
-  "keywords": ["ldesign", "deploy", "docker", "kubernetes", "ci-cd"],
+  "version": "0.2.0",
+  "description": "LDesign 部署工具 - Docker/K8s 部署、CI/CD 模板、蓝绿/金丝雀发布、回滚机制",
+  "keywords": [
+    "ldesign",
+    "deploy",
+    "deployment",
+    "docker",
+    "kubernetes",
+    "k8s",
+    "ci-cd",
+    "devops",
+    "blue-green",
+    "canary",
+    "rollback"
+  ],
   "author": "LDesign Team",
   "license": "MIT",
   "type": "module",
   "main": "./lib/index.cjs",
   "module": "./es/index.js",
-  "scripts": {"build": "ldesign-builder build -f esm,cjs,dts"},
-  "dependencies": {"@ldesign/kit": "workspace:*", "@ldesign/logger": "workspace:*"},
-  "devDependencies": {"@ldesign/builder": "workspace:*", "typescript": "^5.7.3"}
+  "types": "./es/index.d.ts",
+  "bin": {
+    "ldesign-deployer": "./bin/ldesign-deployer.js"
+  },
+  "files": [
+    "lib",
+    "es",
+    "bin",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "ldesign-builder build -f esm,cjs,dts",
+    "dev": "ldesign-builder watch",
+    "clean": "rm -rf lib es dist",
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest --coverage",
+    "test:run": "vitest run",
+    "lint": "tsc --noEmit",
+    "prepublishOnly": "npm run lint && npm run test:run && npm run build"
+  },
+  "dependencies": {
+    "cac": "^6.7.14"
+  },
+  "devDependencies": {
+    "@ldesign/builder": "workspace:*",
+    "@types/node": "^20.0.0",
+    "@vitest/coverage-v8": "^1.0.4",
+    "@vitest/ui": "^1.0.4",
+    "typescript": "^5.7.3",
+    "vitest": "^1.0.4"
+  }
 }
+
+
+
 
 
 

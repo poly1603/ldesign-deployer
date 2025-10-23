@@ -1,4 +1,33 @@
-node_modules
-es
-lib
-dist
+# Dependencies
+node_modules/
+
+# Build outputs
+es/
+lib/
+dist/
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp files
+*.tmp
+.temp/
+
+# Deploy history
+.deploy-history.json
