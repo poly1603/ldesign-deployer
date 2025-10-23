@@ -34,13 +34,42 @@ cli.option('--silent', 'Silent mode')
  */
 cli
   .command('init [name]', 'Initialize deployment configuration')
-  .action(async (name: string) => {
+  .option('--interactive, -i', 'Use interactive mode')
+  .option('--template <type>', 'Use template (node/spa/static/ssr/fullstack)')
+  .action(async (name: string, options) => {
     try {
+      // 交互式模式
+      if (options.interactive) {
+        const { interactiveInit } = await import('./cli/interactive.js')
+        await interactiveInit()
+        return
+      }
+
+      // 使用模板
+      if (options.template) {
+        const { createTemplateConfig } = await import('./templates/index.js')
+        const projectName = name || 'my-app'
+
+        const config = createTemplateConfig(options.template, {
+          name: projectName,
+          projectType: options.template === 'spa' ? 'spa' :
+            options.template === 'static' ? 'static' :
+              options.template === 'ssr' ? 'ssr' : 'node',
+        })
+
+        const configManager = new ConfigManager()
+        await configManager.saveConfig(config)
+        logger.success('✅ 配置已创建 (基于模板: ' + options.template + ')')
+        return
+      }
+
+      // 传统模式
       const projectName = name || 'my-app'
       await ConfigManager.initConfig(projectName)
-      logger.success('Configuration initialized successfully')
+      logger.success('✅ 配置初始化成功')
+      logger.info('💡 提示: 使用 --interactive 或 -i 启用交互式向导')
     } catch (error: any) {
-      logger.error('Failed to initialize configuration:', error.message)
+      logger.error('初始化配置失败:', error.message)
       process.exit(1)
     }
   })
@@ -66,8 +95,8 @@ cli
       }
 
       // 使用增强版或基础版
-      const deployer = options.enhanced 
-        ? new EnhancedDeployer() 
+      const deployer = options.enhanced
+        ? new EnhancedDeployer()
         : new Deployer()
 
       // 如果是增强版，监听进度
@@ -310,7 +339,7 @@ cli
     try {
       const { DeploymentLock } = await import('./utils/lock.js')
       const isLocked = await DeploymentLock.isLocked()
-      
+
       if (isLocked) {
         const lockInfo = await DeploymentLock.getLockInfo()
         logger.warn('🔒 Deployment is locked')
@@ -353,21 +382,21 @@ cli
       const { AuditLogger } = await import('./utils/audit-log.js')
       const auditLogger = new AuditLogger()
       const stats = await auditLogger.getStats()
-      
+
       logger.info('\n📊 Audit Statistics:')
       logger.info('='.repeat(60))
       logger.info(`Total entries: ${stats.total}`)
-      
+
       logger.info('\nBy action:')
       for (const [action, count] of Object.entries(stats.byAction)) {
         logger.info(`  ${action}: ${count}`)
       }
-      
+
       logger.info('\nBy result:')
       for (const [result, count] of Object.entries(stats.byResult)) {
         logger.info(`  ${result}: ${count}`)
       }
-      
+
       logger.info('\nBy environment:')
       for (const [env, count] of Object.entries(stats.byEnvironment)) {
         logger.info(`  ${env}: ${count}`)
@@ -387,26 +416,26 @@ cli
     try {
       const { AuditLogger } = await import('./utils/audit-log.js')
       const auditLogger = new AuditLogger()
-      
+
       const startDate = new Date()
       startDate.setDate(startDate.getDate() - parseInt(options.days))
-      
+
       const logs = await auditLogger.query({
         action: options.action,
         environment: options.environment,
         startDate,
       })
-      
+
       logger.info(`\n📜 Found ${logs.length} audit log entries:`)
       logger.info('='.repeat(80))
-      
+
       logs.slice(0, 20).forEach((log) => {
         const icon = log.result === 'success' ? '✅' : '❌'
         logger.info(
           `${icon} ${log.timestamp} | ${log.action} | ${log.resource} | ${log.environment} | ${log.duration}ms`
         )
       })
-      
+
       if (logs.length > 20) {
         logger.info(`\n... and ${logs.length - 20} more entries`)
       }
@@ -459,13 +488,13 @@ cli
   .action(async () => {
     try {
       const { DeploymentLock } = await import('./utils/lock.js')
-      
+
       logger.info('\n📊 Deployment Status:')
       logger.info('='.repeat(60))
-      
+
       const isLocked = await DeploymentLock.isLocked()
       logger.info(`Lock status: ${isLocked ? '🔒 Locked' : '🔓 Unlocked'}`)
-      
+
       if (isLocked) {
         const lockInfo = await DeploymentLock.getLockInfo()
         if (lockInfo) {
@@ -473,10 +502,113 @@ cli
           logger.info(`Started: ${new Date(lockInfo.timestamp).toLocaleString()}`)
         }
       }
-      
+
       logger.info('='.repeat(60) + '\n')
     } catch (error: any) {
       logger.error('Failed to get status:', error.message)
+      process.exit(1)
+    }
+  })
+
+/**
+ * doctor 命令 - 健康诊断
+ */
+cli
+  .command('doctor', 'Check system dependencies and configuration')
+  .action(async () => {
+    try {
+      const { PreDeploymentChecker } = await import('./core/PreDeploymentChecker.js')
+      const configManager = new ConfigManager()
+
+      logger.info('🏥 Running system diagnostics...\n')
+
+      try {
+        const config = await configManager.loadConfig()
+        const checker = new PreDeploymentChecker()
+        const results = await checker.checkAll(config)
+
+        logger.info('✅ All checks passed!\n')
+        results.forEach(result => {
+          logger.info(`  ✓ ${result.name}: ${result.message}`)
+        })
+      } catch (error: any) {
+        logger.error('❌ Some checks failed')
+        logger.error(error.message)
+        process.exit(1)
+      }
+    } catch (error: any) {
+      logger.error('Doctor check failed:', error.message)
+      process.exit(1)
+    }
+  })
+
+/**
+ * templates 命令 - 列出可用模板
+ */
+cli
+  .command('templates', 'List available configuration templates')
+  .action(async () => {
+    try {
+      const { getAvailableTemplates } = await import('./templates/index.js')
+      const templates = getAvailableTemplates()
+
+      logger.info('📚 Available Templates:\n')
+
+      templates.forEach((template, index) => {
+        logger.info(`${index + 1}. ${template.name}`)
+        logger.info(`   Type: ${template.projectType}`)
+        logger.info(`   Description: ${template.description}`)
+        logger.info(`   Usage: ldesign-deployer init --template=${template.id}\n`)
+      })
+    } catch (error: any) {
+      logger.error('Failed to list templates:', error.message)
+      process.exit(1)
+    }
+  })
+
+/**
+ * cache 命令组 - 缓存管理
+ */
+cli
+  .command('cache:clear', 'Clear all caches')
+  .action(async () => {
+    try {
+      const { clearAllCaches, getCacheStats } = await import('./utils/cache.js')
+      const statsBefore = getCacheStats()
+
+      clearAllCaches()
+
+      logger.success('✅ All caches cleared')
+      logger.info(`  Config cache: ${statsBefore.config.keys} entries`)
+      logger.info(`  Build cache: ${statsBefore.build.keys} entries`)
+      logger.info(`  Health check cache: ${statsBefore.healthCheck.keys} entries`)
+    } catch (error: any) {
+      logger.error('Failed to clear cache:', error.message)
+      process.exit(1)
+    }
+  })
+
+cli
+  .command('cache:stats', 'Show cache statistics')
+  .action(async () => {
+    try {
+      const { getCacheStats } = await import('./utils/cache.js')
+      const stats = getCacheStats()
+
+      logger.info('📊 Cache Statistics:\n')
+      logger.info(`Config Cache:`)
+      logger.info(`  Size: ${stats.config.size} bytes`)
+      logger.info(`  Entries: ${stats.config.keys}\n`)
+
+      logger.info(`Build Cache:`)
+      logger.info(`  Size: ${stats.build.size} bytes`)
+      logger.info(`  Entries: ${stats.build.keys}\n`)
+
+      logger.info(`Health Check Cache:`)
+      logger.info(`  Size: ${stats.healthCheck.size} bytes`)
+      logger.info(`  Entries: ${stats.healthCheck.keys}`)
+    } catch (error: any) {
+      logger.error('Failed to get cache stats:', error.message)
       process.exit(1)
     }
   })
@@ -488,7 +620,7 @@ export async function run(): Promise<void> {
   try {
     // 初始化优雅退出
     GracefulShutdown.init()
-    
+
     cli.parse(process.argv, { run: true })
   } catch (error: any) {
     logger.error('CLI error:', error.message)

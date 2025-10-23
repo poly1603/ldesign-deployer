@@ -3,7 +3,10 @@
  */
 
 import { readFile, writeFile, fileExists, findFileUp } from '../utils/file-system.js'
-import { validateDeployConfig } from '../utils/validator.js'
+import { validateDeployConfig as legacyValidateDeployConfig } from '../utils/validator.js'
+import { validateDeployConfig, safeValidateDeployConfig, formatZodError } from '../utils/schema.js'
+import { ConfigCache } from '../utils/cache.js'
+import { ConfigError, ValidationError, FileSystemError } from '../utils/errors.js'
 import { logger } from '../utils/logger.js'
 import type { DeployConfig, Environment, SecretConfig } from '../types/index.js'
 import { resolve } from 'path'
@@ -19,11 +22,13 @@ export class ConfigManager {
   private configFile: string
   private workDir: string
   private environment: Environment
+  private useCache: boolean
 
   constructor(options: ConfigManagerOptions = {}) {
     this.workDir = options.workDir || process.cwd()
     this.environment = options.environment || 'development'
     this.configFile = options.configFile || 'deploy.config.json'
+    this.useCache = true // 默认启用缓存
   }
 
   /**
@@ -35,37 +40,86 @@ export class ConfigManager {
       const configPath = await this.findConfigFile()
 
       if (!configPath) {
-        throw new Error(`Config file not found: ${this.configFile}`)
+        throw new FileSystemError(`配置文件未找到: ${this.configFile}`, {
+          path: this.configFile,
+          operation: 'find',
+          suggestion: '请运行 ldesign-deployer init 创建配置文件',
+        })
       }
 
-      logger.debug(`Loading config from: ${configPath}`)
+      // 尝试从缓存获取
+      if (this.useCache) {
+        const cached = ConfigCache.get<DeployConfig>(configPath)
+        if (cached) {
+          logger.debug(`使用缓存的配置: ${configPath}`)
+          this.config = cached
+          return cached
+        }
+      }
+
+      logger.debug(`从文件加载配置: ${configPath}`)
 
       // 读取配置
       const content = await readFile(configPath)
-      let config: DeployConfig
+      let rawConfig: any
 
       if (configPath.endsWith('.json')) {
-        config = JSON.parse(content)
+        try {
+          rawConfig = JSON.parse(content)
+        } catch (error: any) {
+          throw new ConfigError(`配置文件 JSON 解析失败`, {
+            details: { path: configPath, error: error.message },
+            suggestion: '请检查 JSON 格式是否正确',
+            cause: error,
+          })
+        }
       } else if (configPath.endsWith('.js') || configPath.endsWith('.mjs')) {
         // 动态导入 JS 配置
         const module = await import(configPath)
-        config = module.default || module
+        rawConfig = module.default || module
       } else {
-        throw new Error(`Unsupported config file format: ${configPath}`)
+        throw new ConfigError(`不支持的配置文件格式`, {
+          details: { path: configPath },
+          suggestion: '支持的格式: .json, .js, .mjs',
+        })
       }
 
       // 合并环境变量
-      config = this.mergeEnvVariables(config)
+      rawConfig = this.mergeEnvVariables(rawConfig)
 
-      // 验证配置
-      validateDeployConfig(config)
+      // 使用 Zod 验证配置
+      const validationResult = safeValidateDeployConfig(rawConfig)
+
+      if (!validationResult.success) {
+        const errorMessage = formatZodError(validationResult.error!)
+        throw new ValidationError(
+          '配置验证失败',
+          undefined,
+          {
+            errors: validationResult.error!.errors,
+            details: { path: configPath },
+            suggestion: '请根据错误信息修正配置文件',
+          }
+        )
+      }
+
+      const config = validationResult.data!
+
+      // 缓存配置
+      if (this.useCache) {
+        ConfigCache.set(configPath, config)
+      }
 
       this.config = config
-      logger.info(`Config loaded successfully for ${config.environment} environment`)
+      logger.info(`✅ 配置加载成功: ${config.environment} 环境`)
 
       return config
-    } catch (error) {
-      logger.error('Failed to load config:', error)
+    } catch (error: any) {
+      if (error instanceof ValidationError || error instanceof ConfigError) {
+        logger.error(error.format())
+      } else {
+        logger.error('加载配置失败:', error.message)
+      }
       throw error
     }
   }
@@ -75,19 +129,63 @@ export class ConfigManager {
    */
   async saveConfig(config: DeployConfig): Promise<void> {
     try {
-      validateDeployConfig(config)
+      // 验证配置
+      const validationResult = safeValidateDeployConfig(config)
+
+      if (!validationResult.success) {
+        const errorMessage = formatZodError(validationResult.error!)
+        throw new ValidationError(
+          '配置验证失败',
+          undefined,
+          {
+            errors: validationResult.error!.errors,
+            suggestion: '请根据错误信息修正配置',
+          }
+        )
+      }
 
       const configPath = resolve(this.workDir, this.configFile)
       const content = JSON.stringify(config, null, 2)
 
       await writeFile(configPath, content)
-      logger.success(`Config saved to: ${configPath}`)
+      logger.success(`✅ 配置已保存: ${configPath}`)
 
       this.config = config
-    } catch (error) {
-      logger.error('Failed to save config:', error)
+
+      // 更新缓存
+      if (this.useCache) {
+        ConfigCache.set(configPath, config)
+      }
+    } catch (error: any) {
+      if (error instanceof ValidationError) {
+        logger.error(error.format())
+      } else {
+        logger.error('保存配置失败:', error.message)
+      }
       throw error
     }
+  }
+
+  /**
+   * 禁用缓存
+   */
+  disableCache(): void {
+    this.useCache = false
+  }
+
+  /**
+   * 启用缓存
+   */
+  enableCache(): void {
+    this.useCache = true
+  }
+
+  /**
+   * 清除当前配置的缓存
+   */
+  clearCache(): void {
+    const configPath = resolve(this.workDir, this.configFile)
+    ConfigCache.delete(configPath)
   }
 
   /**

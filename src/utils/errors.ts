@@ -1,38 +1,86 @@
 /**
- * 自定义错误类型
+ * 分层错误处理系统
+ * 提供统一的错误类型和详细的错误信息
  */
 
 /**
- * 基础部署器错误
+ * 基础部署错误类
  */
 export class DeployerError extends Error {
+  public readonly code: string
+  public readonly details?: any
+  public readonly recoverable: boolean
+  public readonly suggestion?: string
+
   constructor(
     message: string,
-    public code: string,
-    public details?: any
+    code: string,
+    options?: {
+      details?: any
+      recoverable?: boolean
+      suggestion?: string
+      cause?: Error
+    }
   ) {
     super(message)
     this.name = 'DeployerError'
-    Error.captureStackTrace(this, this.constructor)
+    this.code = code
+    this.details = options?.details
+    this.recoverable = options?.recoverable ?? false
+    this.suggestion = options?.suggestion
+
+    if (options?.cause) {
+      this.cause = options.cause
+    }
+
+    // 保持正确的堆栈跟踪
+    Error.captureStackTrace?.(this, this.constructor)
   }
 
-  toJSON() {
-    return {
-      name: this.name,
-      code: this.code,
-      message: this.message,
-      details: this.details,
-      stack: this.stack,
+  /**
+   * 格式化错误信息
+   */
+  format(): string {
+    const lines = [
+      `❌ ${this.name}: ${this.message}`,
+      `   Code: ${this.code}`,
+    ]
+
+    if (this.suggestion) {
+      lines.push(`   💡 Suggestion: ${this.suggestion}`)
     }
+
+    if (this.details) {
+      lines.push(`   Details: ${JSON.stringify(this.details, null, 2)}`)
+    }
+
+    if (this.cause instanceof Error) {
+      lines.push(`   Caused by: ${this.cause.message}`)
+    }
+
+    return lines.join('\n')
   }
 }
 
 /**
- * 配置错误
+ * 配置相关错误
  */
 export class ConfigError extends DeployerError {
-  constructor(message: string, details?: any) {
-    super(message, 'CONFIG_ERROR', details)
+  constructor(
+    message: string,
+    options?: {
+      field?: string
+      details?: any
+      suggestion?: string
+      cause?: Error
+    }
+  ) {
+    super(message, 'CONFIG_ERROR', {
+      details: options?.field ? { field: options.field, ...options?.details } : options?.details,
+      recoverable: true,
+      suggestion: options?.suggestion,
+      cause: options?.cause,
+    })
     this.name = 'ConfigError'
   }
 }
@@ -41,13 +89,44 @@ export class ConfigError extends DeployerError {
  * 验证错误
  */
 export class ValidationError extends DeployerError {
+  public readonly field?: string
+  public readonly errors?: any[]
+
   constructor(
     message: string,
-    public field?: string,
-    public value?: any
+    field?: string,
+    options?: {
+      errors?: any[]
+      details?: any
+      suggestion?: string
+      cause?: Error
+    }
   ) {
-    super(message, 'VALIDATION_ERROR', { field, value })
+    super(message, 'VALIDATION_ERROR', {
+      details: options?.details,
+      recoverable: true,
+      suggestion: options?.suggestion || '请检查配置文件格式是否正确',
+      cause: options?.cause,
+    })
     this.name = 'ValidationError'
+    this.field = field
+    this.errors = options?.errors
+  }
+
+  /**
+   * 格式化验证错误
+   */
+  override format(): string {
+    const lines = [super.format()]
+
+    if (this.errors && this.errors.length > 0) {
+      lines.push('   Validation Errors:')
+      this.errors.forEach((err, index) => {
+        lines.push(`     ${index + 1}. ${err.path?.join('.') || 'root'}: ${err.message}`)
+      })
+    }
+
+    return lines.join('\n')
   }
 }
 
@@ -55,83 +134,103 @@ export class ValidationError extends DeployerError {
  * 部署错误
  */
 export class DeploymentError extends DeployerError {
+  public readonly phase?: string
+
   constructor(
     message: string,
-    public phase?: string,
-    details?: any
+    phase?: string,
+    options?: {
+      details?: any
+      recoverable?: boolean
+      suggestion?: string
+      cause?: Error
+    }
   ) {
-    super(message, 'DEPLOYMENT_ERROR', { phase, ...details })
+    super(message, 'DEPLOYMENT_ERROR', {
+      details: { phase, ...options?.details },
+      recoverable: options?.recoverable ?? false,
+      suggestion: options?.suggestion,
+      cause: options?.cause,
+    })
     this.name = 'DeploymentError'
+    this.phase = phase
   }
 }
 
 /**
- * Docker 错误
+ * Docker 相关错误
  */
 export class DockerError extends DeployerError {
   constructor(
     message: string,
-    public operation?: string,
-    details?: any
+    options?: {
+      command?: string
+      details?: any
+      suggestion?: string
+      cause?: Error
+    }
   ) {
-    super(message, 'DOCKER_ERROR', { operation, ...details })
+    super(message, 'DOCKER_ERROR', {
+      details: options?.command ? { command: options.command, ...options?.details } : options?.details,
+      recoverable: true,
+      suggestion: options?.suggestion || '请检查 Docker 是否正常运行',
+      cause: options?.cause,
+    })
     this.name = 'DockerError'
   }
 }
 
 /**
- * Kubernetes 错误
+ * Kubernetes 相关错误
  */
 export class KubernetesError extends DeployerError {
   constructor(
     message: string,
-    public resource?: string,
-    details?: any
+    options?: {
+      resource?: string
+      namespace?: string
+      details?: any
+      suggestion?: string
+      cause?: Error
+    }
   ) {
-    super(message, 'KUBERNETES_ERROR', { resource, ...details })
+    super(message, 'KUBERNETES_ERROR', {
+      details: {
+        resource: options?.resource,
+        namespace: options?.namespace,
+        ...options?.details,
+      },
+      recoverable: true,
+      suggestion: options?.suggestion || '请检查 kubectl 配置和集群连接',
+      cause: options?.cause,
+    })
     this.name = 'KubernetesError'
   }
 }
 
 /**
- * 回滚错误
+ * 超时错误
  */
-export class RollbackError extends DeployerError {
-  constructor(
-    message: string,
-    public targetVersion?: string,
-    details?: any
-  ) {
-    super(message, 'ROLLBACK_ERROR', { targetVersion, ...details })
-    this.name = 'RollbackError'
-  }
-}
+export class TimeoutError extends DeployerError {
+  public readonly timeout: number
 
-/**
- * 健康检查错误
- */
-export class HealthCheckError extends DeployerError {
   constructor(
     message: string,
-    public checkType?: string,
-    details?: any
+    operation: string,
+    timeout: number,
+    options?: {
+      suggestion?: string
+      cause?: Error
+    }
   ) {
-    super(message, 'HEALTH_CHECK_ERROR', { checkType, ...details })
-    this.name = 'HealthCheckError'
-  }
-}
-
-/**
- * 文件系统错误
- */
-export class FileSystemError extends DeployerError {
-  constructor(
-    message: string,
-    public path?: string,
-    details?: any
-  ) {
-    super(message, 'FILESYSTEM_ERROR', { path, ...details })
-    this.name = 'FileSystemError'
+    super(message, 'TIMEOUT_ERROR', {
+      details: { operation, timeout },
+      recoverable: true,
+      suggestion: options?.suggestion || `操作超时，请增加超时时间或检查网络连接`,
+      cause: options?.cause,
+    })
+    this.name = 'TimeoutError'
+    this.timeout = timeout
   }
 }
 
@@ -141,105 +240,186 @@ export class FileSystemError extends DeployerError {
 export class NetworkError extends DeployerError {
   constructor(
     message: string,
-    public url?: string,
-    public statusCode?: number,
-    details?: any
+    options?: {
+      url?: string
+      statusCode?: number
+      details?: any
+      suggestion?: string
+      cause?: Error
+    }
   ) {
-    super(message, 'NETWORK_ERROR', { url, statusCode, ...details })
+    super(message, 'NETWORK_ERROR', {
+      details: {
+        url: options?.url,
+        statusCode: options?.statusCode,
+        ...options?.details,
+      },
+      recoverable: true,
+      suggestion: options?.suggestion || '请检查网络连接和服务可用性',
+      cause: options?.cause,
+    })
     this.name = 'NetworkError'
   }
 }
 
 /**
- * 超时错误
+ * 权限错误
  */
-export class TimeoutError extends DeployerError {
+export class PermissionError extends DeployerError {
   constructor(
     message: string,
-    public operation?: string,
-    public timeout?: number
+    options?: {
+      resource?: string
+      details?: any
+      suggestion?: string
+      cause?: Error
+    }
   ) {
-    super(message, 'TIMEOUT_ERROR', { operation, timeout })
-    this.name = 'TimeoutError'
+    super(message, 'PERMISSION_ERROR', {
+      details: { resource: options?.resource, ...options?.details },
+      recoverable: false,
+      suggestion: options?.suggestion || '请检查用户权限和访问凭证',
+      cause: options?.cause,
+    })
+    this.name = 'PermissionError'
   }
 }
 
 /**
- * 错误工厂函数
+ * 文件系统错误
  */
-export function createError(
-  type: 'config' | 'validation' | 'deployment' | 'docker' | 'kubernetes' | 'rollback' | 'healthcheck' | 'filesystem' | 'network' | 'timeout',
-  message: string,
-  details?: any
-): DeployerError {
-  switch (type) {
-    case 'config':
-      return new ConfigError(message, details)
-    case 'validation':
-      return new ValidationError(message, details?.field, details?.value)
-    case 'deployment':
-      return new DeploymentError(message, details?.phase, details)
-    case 'docker':
-      return new DockerError(message, details?.operation, details)
-    case 'kubernetes':
-      return new KubernetesError(message, details?.resource, details)
-    case 'rollback':
-      return new RollbackError(message, details?.targetVersion, details)
-    case 'healthcheck':
-      return new HealthCheckError(message, details?.checkType, details)
-    case 'filesystem':
-      return new FileSystemError(message, details?.path, details)
-    case 'network':
-      return new NetworkError(message, details?.url, details?.statusCode, details)
-    case 'timeout':
-      return new TimeoutError(message, details?.operation, details?.timeout)
-    default:
-      return new DeployerError(message, 'UNKNOWN_ERROR', details)
+export class FileSystemError extends DeployerError {
+  constructor(
+    message: string,
+    options?: {
+      path?: string
+      operation?: string
+      details?: any
+      suggestion?: string
+      cause?: Error
+    }
+  ) {
+    super(message, 'FILESYSTEM_ERROR', {
+      details: {
+        path: options?.path,
+        operation: options?.operation,
+        ...options?.details,
+      },
+      recoverable: true,
+      suggestion: options?.suggestion || '请检查文件路径和权限',
+      cause: options?.cause,
+    })
+    this.name = 'FileSystemError'
   }
 }
 
 /**
- * 错误处理辅助函数
+ * 健康检查错误
  */
-export function handleError(error: unknown): DeployerError {
+export class HealthCheckError extends DeployerError {
+  public readonly checks: Array<{ name: string; passed: boolean; message: string }>
+
+  constructor(
+    message: string,
+    checks: Array<{ name: string; passed: boolean; message: string }>,
+    options?: {
+      suggestion?: string
+      cause?: Error
+    }
+  ) {
+    super(message, 'HEALTH_CHECK_ERROR', {
+      details: { checks },
+      recoverable: true,
+      suggestion: options?.suggestion || '请检查应用健康状态和配置',
+      cause: options?.cause,
+    })
+    this.name = 'HealthCheckError'
+    this.checks = checks
+  }
+
+  /**
+   * 格式化健康检查错误
+   */
+  override format(): string {
+    const lines = [super.format()]
+
+    if (this.checks && this.checks.length > 0) {
+      lines.push('   Failed Checks:')
+      this.checks
+        .filter(check => !check.passed)
+        .forEach((check, index) => {
+          lines.push(`     ${index + 1}. ${check.name}: ${check.message}`)
+        })
+    }
+
+    return lines.join('\n')
+  }
+}
+
+/**
+ * 锁错误
+ */
+export class LockError extends DeployerError {
+  constructor(
+    message: string,
+    options?: {
+      lockId?: string
+      details?: any
+      suggestion?: string
+      cause?: Error
+    }
+  ) {
+    super(message, 'LOCK_ERROR', {
+      details: { lockId: options?.lockId, ...options?.details },
+      recoverable: true,
+      suggestion: options?.suggestion || '等待当前部署完成或使用 lock:release 强制释放锁',
+      cause: options?.cause,
+    })
+    this.name = 'LockError'
+  }
+}
+
+/**
+ * 判断错误是否可恢复
+ */
+export function isRecoverableError(error: Error): boolean {
+  if (error instanceof DeployerError) {
+    return error.recoverable
+  }
+  return false
+}
+
+/**
+ * 格式化错误信息
+ */
+export function formatError(error: Error): string {
+  if (error instanceof DeployerError) {
+    return error.format()
+  }
+  return `❌ Error: ${error.message}\n   ${error.stack || ''}`
+}
+
+/**
+ * 包装原生错误为 DeployerError
+ */
+export function wrapError(error: unknown, context?: string): DeployerError {
   if (error instanceof DeployerError) {
     return error
   }
 
   if (error instanceof Error) {
-    return new DeployerError(error.message, 'UNKNOWN_ERROR', {
-      originalError: error.name,
-      stack: error.stack,
-    })
+    return new DeployerError(
+      context ? `${context}: ${error.message}` : error.message,
+      'UNKNOWN_ERROR',
+      { cause: error, recoverable: false }
+    )
   }
 
   return new DeployerError(
     String(error),
     'UNKNOWN_ERROR',
-    { originalError: error }
+    { recoverable: false }
   )
 }
-
-/**
- * 格式化错误消息
- */
-export function formatError(error: DeployerError): string {
-  let message = `[${error.code}] ${error.message}`
-
-  if (error.details) {
-    const detailsStr = Object.entries(error.details)
-      .filter(([_, value]) => value !== undefined)
-      .map(([key, value]) => `${key}: ${JSON.stringify(value)}`)
-      .join(', ')
-
-    if (detailsStr) {
-      message += `\nDetails: ${detailsStr}`
-    }
-  }
-
-  return message
-}
-
-
 
 

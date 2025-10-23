@@ -27,6 +27,18 @@ export * from './monitoring/index.js'
 // 扩缩容模块
 export * from './scaling/index.js'
 
+// 报告模块
+export * from './reports/index.js'
+
+// 安全模块
+export * from './security/index.js'
+
+// 可视化模块
+export * from './visualization/index.js'
+
+// 分析器模块
+export * from './analyzer/index.js'
+
 // 类型定义
 export * from './types/index.js'
 

@@ -1,8 +1,10 @@
 /**
  * 部署进度追踪
+ * 支持 ora 旋转指示器和预估时间
  */
 
 import { logger } from './logger.js'
+import ora, { type Ora } from 'ora'
 
 export enum DeploymentPhase {
   INIT = 'init',
@@ -33,6 +35,28 @@ export class ProgressTracker {
   private currentPhase: DeploymentPhase = DeploymentPhase.INIT
   private currentProgress = 0
   private startTime = Date.now()
+  private phaseStartTimes = new Map<DeploymentPhase, number>()
+  private phaseDurations = new Map<DeploymentPhase, number>()
+  private enableSpinner = false
+  private spinner?: Ora
+
+  /**
+   * 启用旋转指示器
+   */
+  useSpinner(): void {
+    this.enableSpinner = true
+  }
+
+  /**
+   * 禁用旋转指示器
+   */
+  disableSpinner(): void {
+    this.enableSpinner = false
+    if (this.spinner) {
+      this.spinner.stop()
+      this.spinner = undefined
+    }
+  }
 
   /**
    * 添加监听器
@@ -55,6 +79,15 @@ export class ProgressTracker {
    * 更新进度
    */
   update(phase: DeploymentPhase, progress: number, message: string, data?: any): void {
+    // 记录阶段切换时间
+    if (phase !== this.currentPhase) {
+      if (this.currentPhase && this.phaseStartTimes.has(this.currentPhase)) {
+        const duration = Date.now() - this.phaseStartTimes.get(this.currentPhase)!
+        this.phaseDurations.set(this.currentPhase, duration)
+      }
+      this.phaseStartTimes.set(phase, Date.now())
+    }
+
     this.currentPhase = phase
     this.currentProgress = progress
 
@@ -75,9 +108,56 @@ export class ProgressTracker {
       }
     })
 
-    // 默认日志输出
+    // 使用 spinner 或默认日志输出
+    if (this.enableSpinner) {
+      this.updateSpinner(phase, progress, message)
+    } else {
+      const elapsed = ((Date.now() - this.startTime) / 1000).toFixed(1)
+      const estimate = this.getEstimatedTime()
+      const estimateStr = estimate ? ` (剩余 ~${estimate}s)` : ''
+      logger.info(`[${progress}%] [${elapsed}s]${estimateStr} ${this.getPhaseIcon(phase)} ${message}`)
+    }
+  }
+
+  /**
+   * 更新旋转指示器
+   */
+  private updateSpinner(phase: DeploymentPhase, progress: number, message: string): void {
     const elapsed = ((Date.now() - this.startTime) / 1000).toFixed(1)
-    logger.info(`[${progress}%] [${elapsed}s] ${this.getPhaseIcon(phase)} ${message}`)
+    const estimate = this.getEstimatedTime()
+    const estimateStr = estimate ? ` (剩余 ~${estimate}s)` : ''
+    const text = `[${progress}%] [${elapsed}s]${estimateStr} ${this.getPhaseIcon(phase)} ${message}`
+
+    if (!this.spinner) {
+      this.spinner = ora(text).start()
+    } else {
+      this.spinner.text = text
+    }
+
+    // 根据进度更新 spinner 颜色
+    if (progress === 100) {
+      this.spinner.succeed(text)
+      this.spinner = undefined
+    } else if (progress < 30) {
+      this.spinner.color = 'blue'
+    } else if (progress < 70) {
+      this.spinner.color = 'yellow'
+    } else {
+      this.spinner.color = 'green'
+    }
+  }
+
+  /**
+   * 预估剩余时间（秒）
+   */
+  private getEstimatedTime(): number | null {
+    if (this.currentProgress === 0) return null
+
+    const elapsed = Date.now() - this.startTime
+    const estimatedTotal = (elapsed / this.currentProgress) * 100
+    const remaining = Math.ceil((estimatedTotal - elapsed) / 1000)
+
+    return remaining > 0 ? remaining : null
   }
 
   /**
@@ -85,6 +165,12 @@ export class ProgressTracker {
    */
   complete(message = 'Deployment completed'): void {
     this.update(DeploymentPhase.COMPLETE, 100, message)
+
+    if (this.spinner) {
+      const elapsed = ((Date.now() - this.startTime) / 1000).toFixed(1)
+      this.spinner.succeed(`✅ ${message} (${elapsed}s)`)
+      this.spinner = undefined
+    }
   }
 
   /**
@@ -92,6 +178,11 @@ export class ProgressTracker {
    */
   fail(message = 'Deployment failed'): void {
     this.update(DeploymentPhase.FAILED, this.currentProgress, message)
+
+    if (this.spinner) {
+      this.spinner.fail(`❌ ${message}`)
+      this.spinner = undefined
+    }
   }
 
   /**
@@ -110,12 +201,40 @@ export class ProgressTracker {
     phase: DeploymentPhase
     progress: number
     elapsed: number
+    estimatedRemaining: number | null
   } {
     return {
       phase: this.currentPhase,
       progress: this.currentProgress,
       elapsed: Date.now() - this.startTime,
+      estimatedRemaining: this.getEstimatedTime(),
     }
+  }
+
+  /**
+   * 获取阶段统计
+   */
+  getPhaseStats(): Array<{
+    phase: DeploymentPhase
+    duration: number
+    percentage: number
+  }> {
+    const total = Date.now() - this.startTime
+    const stats: Array<{
+      phase: DeploymentPhase
+      duration: number
+      percentage: number
+    }> = []
+
+    this.phaseDurations.forEach((duration, phase) => {
+      stats.push({
+        phase,
+        duration,
+        percentage: Math.round((duration / total) * 100),
+      })
+    })
+
+    return stats.sort((a, b) => b.duration - a.duration)
   }
 
   /**
