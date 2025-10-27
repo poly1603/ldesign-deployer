@@ -1,5 +1,107 @@
 # @ldesign/deployer
 
+> 🚀 自动化部署工具，让应用发布变得简单可靠
+
+## ✨ 特性
+
+- 🚀 **一键部署** - 支持多种部署目标（服务器/CDN/容器）
+- 🔄 **回滚机制** - 版本回滚和灰度发布
+- 📝 **部署脚本** - 自定义部署流程脚本
+- 🔔 **通知集成** - 部署状态通知（钉钉/企业微信/Slack）
+- 📊 **部署日志** - 详细的部署日志和历史记录
+- 🔐 **安全部署** - SSH/SFTP 安全连接
+- 🌊 **流水线支持** - CI/CD 流水线集成
+
+## 📦 安装
+
+```bash
+npm install @ldesign/deployer --save-dev
+```
+
+## 🚀 快速开始
+
+### 初始化部署配置
+
+```bash
+npx ldesign-deployer init
+```
+
+### 部署应用
+
+```bash
+# 部署到生产环境
+npx ldesign-deployer deploy production
+
+# 部署到测试环境
+npx ldesign-deployer deploy staging
+
+# 灰度发布
+npx ldesign-deployer deploy production --canary 20%
+```
+
+### 回滚版本
+
+```bash
+# 回滚到上一个版本
+npx ldesign-deployer rollback
+
+# 回滚到指定版本
+npx ldesign-deployer rollback --version 1.2.0
+```
+
+## ⚙️ 配置
+
+创建 `deployer.config.js`：
+
+```javascript
+module.exports = {
+  // 部署环境
+  environments: {
+    production: {
+      type: 'ssh',
+      host: 'prod.example.com',
+      port: 22,
+      username: 'deploy',
+      path: '/var/www/app',
+    },
+    staging: {
+      type: 'ssh',
+      host: 'staging.example.com',
+      port: 22,
+      username: 'deploy',
+      path: '/var/www/app',
+    },
+  },
+  
+  // 构建配置
+  build: {
+    command: 'npm run build',
+    output: 'dist',
+  },
+  
+  // 通知配置
+  notifications: {
+    dingtalk: {
+      webhook: process.env.DINGTALK_WEBHOOK,
+    },
+  },
+  
+  // 备份配置
+  backup: {
+    enabled: true,
+    keep: 5,
+  },
+};
+```
+
+## 🤝 贡献
+
+欢迎贡献！请查看 [CONTRIBUTING.md](./CONTRIBUTING.md)。
+
+## 📄 许可证
+
+MIT © LDesign Team
+
 > 企业级部署工具 - Docker/K8s 部署、CI/CD 模板、蓝绿/金丝雀发布、回滚机制
 
 [![Version](https://img.shields.io/badge/version-0.2.0-blue.svg)](./CHANGELOG.md)
