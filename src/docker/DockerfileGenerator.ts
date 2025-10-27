@@ -1,14 +1,56 @@
 /**
  * Dockerfile 生成器
+ * @module docker/DockerfileGenerator
+ * 
+ * @description 根据项目类型和配置生成优化的 Dockerfile
  */
 
 import { renderTemplate } from '../utils/template-engine.js'
 import { logger } from '../utils/logger.js'
 import type { DockerfileOptions } from '../types/index.js'
+import {
+  DEFAULT_NODE_VERSION,
+  DEFAULT_WORK_DIR,
+  DEFAULT_NGINX_ROOT,
+  DEFAULT_PORT,
+  DEFAULT_HTTP_PORT,
+  DEFAULT_INSTALL_COMMAND,
+  DEFAULT_BUILD_COMMAND,
+  DEFAULT_START_COMMAND,
+} from '../constants/index.js'
 
+/**
+ * Dockerfile 生成器类
+ * 
+ * @description 支持多种项目类型的 Dockerfile 生成，包括 Node.js、静态网站、SPA 等
+ * 
+ * @example
+ * ```typescript
+ * const generator = new DockerfileGenerator();
+ * const dockerfile = generator.generate({
+ *   projectType: 'node',
+ *   multiStage: true,
+ *   optimize: true
+ * });
+ * ```
+ */
 export class DockerfileGenerator {
   /**
    * 生成 Dockerfile
+   * 
+   * @param options - Dockerfile 生成选项
+   * @returns 生成的 Dockerfile 内容
+   * @throws {Error} 当项目类型不支持时抛出
+   * 
+   * @example
+   * ```typescript
+   * const dockerfile = generator.generate({
+   *   projectType: 'node',
+   *   nodeVersion: '20',
+   *   port: 3000,
+   *   multiStage: true
+   * });
+   * ```
    */
   generate(options: DockerfileOptions): string {
     logger.debug('Generating Dockerfile with options:', options)
@@ -28,14 +70,18 @@ export class DockerfileGenerator {
 
   /**
    * 生成 Node.js Dockerfile
+   * 
+   * @private
+   * @param options - 生成选项
+   * @returns Dockerfile 内容
    */
   private generateNodeDockerfile(options: DockerfileOptions): string {
-    const nodeVersion = options.nodeVersion || '20'
-    const workDir = options.workDir || '/app'
-    const port = options.port || 3000
-    const installCommand = options.installCommand || 'npm ci'
-    const buildCommand = options.buildCommand || 'npm run build'
-    const startCommand = options.startCommand || 'npm start'
+    const nodeVersion = options.nodeVersion || DEFAULT_NODE_VERSION
+    const workDir = options.workDir || DEFAULT_WORK_DIR
+    const port = options.port || DEFAULT_PORT
+    const installCommand = options.installCommand || DEFAULT_INSTALL_COMMAND
+    const buildCommand = options.buildCommand || DEFAULT_BUILD_COMMAND
+    const startCommand = options.startCommand || DEFAULT_START_COMMAND
 
     if (options.multiStage) {
       return this.generateMultiStageNodeDockerfile({
@@ -164,10 +210,14 @@ CMD [{{startCommand}}]
 
   /**
    * 生成静态网站 Dockerfile
+   * 
+   * @private
+   * @param options - 生成选项
+   * @returns Dockerfile 内容
    */
   private generateStaticDockerfile(options: DockerfileOptions): string {
-    const workDir = options.workDir || '/usr/share/nginx/html'
-    const port = options.port || 80
+    const workDir = options.workDir || DEFAULT_NGINX_ROOT
+    const port = options.port || DEFAULT_HTTP_PORT
 
     if (options.buildCommand) {
       // 需要构建的静态网站（如 React, Vue）
@@ -200,14 +250,18 @@ CMD ["nginx", "-g", "daemon off;"]
 
   /**
    * 生成 SPA Dockerfile（需要构建）
+   * 
+   * @private
+   * @param options - 生成选项
+   * @returns Dockerfile 内容
    */
   private generateSPADockerfile(options: DockerfileOptions): string {
-    const nodeVersion = options.nodeVersion || '20'
-    const workDir = '/app'
-    const nginxRoot = '/usr/share/nginx/html'
-    const port = options.port || 80
-    const installCommand = options.installCommand || 'npm ci'
-    const buildCommand = options.buildCommand || 'npm run build'
+    const nodeVersion = options.nodeVersion || DEFAULT_NODE_VERSION
+    const workDir = DEFAULT_WORK_DIR
+    const nginxRoot = DEFAULT_NGINX_ROOT
+    const port = options.port || DEFAULT_HTTP_PORT
+    const installCommand = options.installCommand || DEFAULT_INSTALL_COMMAND
+    const buildCommand = options.buildCommand || DEFAULT_BUILD_COMMAND
 
     const template = `
 # SPA Application Dockerfile (Multi-stage)
@@ -293,7 +347,16 @@ CMD ["sh", "-c", "echo 'Add your start command here'"]
   }
 
   /**
-   * 生成 .dockerignore
+   * 生成 .dockerignore 文件
+   * 
+   * @returns .dockerignore 文件内容
+   * 
+   * @example
+   * ```typescript
+   * const generator = new DockerfileGenerator();
+   * const dockerignore = generator.generateDockerignore();
+   * await fs.writeFile('.dockerignore', dockerignore);
+   * ```
    */
   generateDockerignore(): string {
     return `
@@ -354,6 +417,16 @@ logs/
 
   /**
    * 格式化命令为 JSON 数组格式
+   * 
+   * @private
+   * @param command - 命令字符串
+   * @returns JSON 格式的命令数组字符串
+   * 
+   * @example
+   * ```typescript
+   * formatCommand('npm start'); // '["npm", "start"]'
+   * formatCommand('node index.js'); // '["node", "index.js"]'
+   * ```
    */
   private formatCommand(command: string): string {
     // 如果已经是数组格式，直接返回

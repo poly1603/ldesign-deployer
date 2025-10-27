@@ -1,7 +1,7 @@
 {
   "name": "@ldesign/deployer",
   "version": "0.3.0",
-  "description": "LDesign 企业级部署工具 - Docker/K8s 部署、CI/CD 模板、蓝绿/金丝雀发布、交互式向导、智能缓存",
+  "description": "LDesign 企业级部署工具 - Docker/K8s 部署、CI/CD 模板、蓝绿/金丝雀发布、智能通知、配置模板市场",
   "keywords": [
     "ldesign",
     "deploy",
@@ -13,7 +13,10 @@
     "devops",
     "blue-green",
     "canary",
-    "rollback"
+    "rollback",
+    "notifications",
+    "templates",
+    "preview"
   ],
   "author": "LDesign Team",
   "license": "MIT",
@@ -59,9 +62,3 @@
     "vitest": "^1.0.4"
   }
 }
-
-
-
-
-
-

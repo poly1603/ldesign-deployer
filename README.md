@@ -25,6 +25,14 @@
 - ✅ **进度追踪** - 实时部署进度
 - ✅ **审计日志** - 完整的操作记录
 
+### 🌟 新增功能 (v0.3.0)
+
+- ✅ **通知系统** - Webhook/控制台多渠道通知
+- ✅ **配置模板** - 7+ 个预置模板，快速开始
+- ✅ **配置预览** - Diff 对比、影响分析、风险评估
+- ✅ **性能优化** - 批量操作、记忆化、性能监控
+- ✅ **资源监控** - CPU/内存实时监控和告警
+
 ### 🚀 高级功能
 
 - 🔵🟢 **蓝绿部署** - 零停机部署，快速切换
@@ -59,8 +67,14 @@ yarn add @ldesign/deployer
 ### CLI 使用
 
 ```bash
-# 初始化配置
+# 方式1: 使用模板快速开始 (推荐)
+ldesign-deployer template:use express-k8s --name my-app --domain example.com
+
+# 方式2: 手动初始化配置
 ldesign-deployer init my-app
+
+# 查看可用模板
+ldesign-deployer templates
 
 # 部署到开发环境
 ldesign-deployer deploy --env development
@@ -185,6 +199,35 @@ if (result.success) {
 
 ## 🛠️ CLI 命令
 
+### 模板命令
+
+```bash
+# 列出所有模板
+ldesign-deployer templates
+
+# 筛选模板
+ldesign-deployer templates --type node --platform kubernetes
+
+# 使用模板创建配置
+ldesign-deployer template:use <template-id> \
+  --name <app-name> \
+  --port <port> \
+  --domain <domain>
+
+# 示例
+ldesign-deployer template:use express-k8s --name my-api --domain api.example.com
+```
+
+### 配置预览命令
+
+```bash
+# 对比两个配置文件
+ldesign-deployer preview:diff old-config.json new-config.json
+
+# 分析变更影响
+ldesign-deployer preview:analyze old-config.json new-config.json
+```
+
 ### 部署命令
 
 ```bash
@@ -254,6 +297,98 @@ ldesign-deployer version:tag [options]
 ```
 
 ## 💡 使用示例
+
+### 使用模板快速开始
+
+```bash
+# 1. 查看可用模板
+ldesign-deployer templates
+
+# 2. 使用模板创建配置
+ldesign-deployer template:use express-k8s \
+  --name my-api \
+  --domain api.example.com \
+  --port 3000
+
+# 3. 部署
+ldesign-deployer deploy --env production
+```
+
+### 配置通知
+
+```typescript
+import { 
+  EnhancedDeployer, 
+  NotificationManager,
+  WebhookNotifier 
+} from '@ldesign/deployer'
+
+const deployer = new EnhancedDeployer()
+const notifications = new NotificationManager()
+
+// 添加通知渠道
+notifications.addNotifier(new WebhookNotifier({
+  url: 'https://hooks.example.com/webhook',
+  authToken: 'your-token'
+}))
+
+// 执行部署
+const result = await deployer.deploy({
+  environment: 'production'
+})
+
+// 发送通知
+await notifications.sendDeployment({
+  appName: 'my-app',
+  version: '1.0.0',
+  environment: 'production',
+  success: result.success,
+  duration: 45000
+})
+```
+
+### 配置预览和分析
+
+```typescript
+import { ConfigDiffer, ChangeAnalyzer } from '@ldesign/deployer'
+
+// 对比配置
+const differ = new ConfigDiffer()
+const diffReport = differ.compare(oldConfig, newConfig)
+
+console.log(differ.formatReport(diffReport))
+
+// 分析影响
+const analyzer = new ChangeAnalyzer()
+const analysis = analyzer.analyze(diffReport, oldConfig, newConfig)
+
+console.log(`风险评分: ${analysis.overallRiskScore}/100`)
+console.log(`需要停机: ${analysis.requiresDowntime ? '是' : '否'}`)
+```
+
+### 资源监控
+
+```typescript
+import { ResourceMonitor } from '@ldesign/deployer'
+
+const monitor = new ResourceMonitor({
+  interval: 5000,
+  cpuThreshold: 80,
+  memoryThreshold: 85
+})
+
+monitor.on('alert', (alert) => {
+  console.log(`资源告警: ${alert.type} ${alert.value}%`)
+})
+
+monitor.start()
+
+// 执行部署...
+
+monitor.stop()
+const stats = monitor.getStatistics()
+console.log(`平均 CPU: ${stats.avgCpu.toFixed(2)}%`)
+```
 
 ### 蓝绿部署
 

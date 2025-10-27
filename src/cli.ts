@@ -1,8 +1,14 @@
 /**
  * @ldesign/deployer CLI
+ * @module cli
+ * 
+ * @description 部署工具的命令行界面，提供部署、回滚、配置管理等命令
  */
 
 import { cac } from 'cac'
+import { readFile } from 'fs/promises'
+import { resolve, dirname } from 'path'
+import { fileURLToPath } from 'url'
 import { Deployer } from './core/Deployer.js'
 import { EnhancedDeployer } from './core/EnhancedDeployer.js'
 import { ConfigManager } from './core/ConfigManager.js'
@@ -22,8 +28,20 @@ import type { Environment } from './types/index.js'
 
 const cli = cac('ldesign-deployer')
 
-// 版本号
-cli.version('0.2.0')
+// 从 package.json 读取版本号
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
+const packageJsonPath = resolve(__dirname, '../package.json')
+
+let version = '0.3.0' // 默认版本
+try {
+  const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf-8'))
+  version = packageJson.version
+} catch {
+  // 如果读取失败，使用默认版本
+}
+
+cli.version(version)
 
 // 全局选项
 cli.option('--debug', 'Enable debug mode')
@@ -547,21 +565,151 @@ cli
  */
 cli
   .command('templates', 'List available configuration templates')
-  .action(async () => {
+  .option('--type <type>', 'Filter by project type')
+  .option('--platform <platform>', 'Filter by platform')
+  .option('--tag <tag>', 'Filter by tag')
+  .action(async (options) => {
     try {
-      const { getAvailableTemplates } = await import('./templates/index.js')
-      const templates = getAvailableTemplates()
+      const { TemplateRegistry, initializeMarketplace } = await import('./templates/index.js')
 
-      logger.info('📚 Available Templates:\n')
+      // 初始化模板市场
+      initializeMarketplace()
+
+      const registry = TemplateRegistry.getInstance()
+      let templates = registry.getAllTemplates()
+
+      // 应用过滤器
+      if (options.type) {
+        templates = templates.filter(t => t.projectType === options.type)
+      }
+      if (options.platform) {
+        templates = templates.filter(t => t.platform === options.platform)
+      }
+      if (options.tag) {
+        templates = templates.filter(t => t.tags.includes(options.tag))
+      }
+
+      if (templates.length === 0) {
+        logger.info('No templates found matching your criteria')
+        return
+      }
+
+      logger.info(`📚 Available Templates (${templates.length}):\n`)
 
       templates.forEach((template, index) => {
-        logger.info(`${index + 1}. ${template.name}`)
-        logger.info(`   Type: ${template.projectType}`)
+        const difficultyEmoji = template.difficulty === 'beginner' ? '🟢' : template.difficulty === 'intermediate' ? '🟡' : '🔴'
+        logger.info(`${index + 1}. ${template.name} ${difficultyEmoji}`)
+        logger.info(`   ID: ${template.id}`)
+        logger.info(`   Type: ${template.projectType} | Platform: ${template.platform}`)
+        logger.info(`   Tags: ${template.tags.join(', ')}`)
         logger.info(`   Description: ${template.description}`)
         logger.info(`   Usage: ldesign-deployer init --template=${template.id}\n`)
       })
     } catch (error: any) {
       logger.error('Failed to list templates:', error.message)
+      process.exit(1)
+    }
+  })
+
+/**
+ * template:use 命令 - 使用模板创建配置
+ */
+cli
+  .command('template:use <id>', 'Use a template to create configuration')
+  .option('--name <name>', 'Application name', { default: 'my-app' })
+  .option('--version <version>', 'Application version', { default: '1.0.0' })
+  .option('--port <port>', 'Application port')
+  .option('--output <file>', 'Output file', { default: 'deploy.config.json' })
+  .action(async (id: string, options) => {
+    try {
+      const { TemplateRegistry, initializeMarketplace } = await import('./templates/index.js')
+      const { writeFile } = await import('./utils/file-system.js')
+
+      // 初始化模板市场
+      initializeMarketplace()
+
+      const registry = TemplateRegistry.getInstance()
+
+      logger.info(`Using template: ${id}`)
+
+      const config = registry.useTemplate(id, {
+        name: options.name,
+        version: options.version,
+        port: options.port ? parseInt(options.port) : undefined,
+      })
+
+      await writeFile(options.output, JSON.stringify(config, null, 2))
+      logger.success(`✅ Configuration created: ${options.output}`)
+      logger.info(`📝 Application: ${config.name}`)
+      logger.info(`🚀 Platform: ${config.platform}`)
+    } catch (error: any) {
+      logger.error('Failed to use template:', error.message)
+      process.exit(1)
+    }
+  })
+
+/**
+ * preview 命令组 - 配置预览
+ */
+cli
+  .command('preview:diff <file1> <file2>', 'Compare two deployment configurations')
+  .option('--verbose', 'Show verbose output', { default: true })
+  .action(async (file1: string, file2: string, options) => {
+    try {
+      const { ConfigDiffer } = await import('./preview/index.js')
+      const { readFile } = await import('./utils/file-system.js')
+
+      // 读取配置文件
+      const config1 = JSON.parse(await readFile(file1))
+      const config2 = JSON.parse(await readFile(file2))
+
+      // 对比配置
+      const differ = new ConfigDiffer()
+      const report = differ.compare(config1, config2)
+
+      // 输出报告
+      console.log(differ.formatReport(report, { verbose: options.verbose }))
+
+      // 如果有差异，退出码为 1
+      if (report.hasDifferences) {
+        process.exit(1)
+      }
+    } catch (error: any) {
+      logger.error('Failed to compare configurations:', error.message)
+      process.exit(1)
+    }
+  })
+
+cli
+  .command('preview:analyze <file1> <file2>', 'Analyze configuration change impact')
+  .action(async (file1: string, file2: string) => {
+    try {
+      const { ConfigDiffer, ChangeAnalyzer } = await import('./preview/index.js')
+      const { readFile } = await import('./utils/file-system.js')
+
+      // 读取配置文件
+      const oldConfig = JSON.parse(await readFile(file1))
+      const newConfig = JSON.parse(await readFile(file2))
+
+      // 对比和分析
+      const differ = new ConfigDiffer()
+      const diffReport = differ.compare(oldConfig, newConfig)
+
+      const analyzer = new ChangeAnalyzer()
+      const analysis = analyzer.analyze(diffReport, oldConfig, newConfig)
+
+      // 输出分析报告
+      console.log(analyzer.formatReport(analysis))
+
+      // 根据风险评分设置退出码
+      if (analysis.overallRiskScore >= 70) {
+        logger.warn('⚠️  高风险变更，请谨慎操作')
+        process.exit(2)
+      } else if (analysis.overallRiskScore >= 40) {
+        logger.info('ℹ️  中等风险变更，建议仔细检查')
+      }
+    } catch (error: any) {
+      logger.error('Failed to analyze configuration:', error.message)
       process.exit(1)
     }
   })

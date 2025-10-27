@@ -1,5 +1,8 @@
 /**
  * 主部署器
+ * @module core/Deployer
+ * 
+ * @description 核心部署器类，支持 Docker、Docker Compose 和 Kubernetes 部署
  */
 
 import { ConfigManager } from './ConfigManager.js'
@@ -14,15 +17,38 @@ import { promisify } from 'util'
 
 const execAsync = promisify(exec)
 
+/**
+ * 部署选项接口
+ */
 export interface DeployOptions {
+  /** 部署配置对象 */
   config?: DeployConfig
+  /** 配置文件路径 */
   configFile?: string
+  /** 目标环境 */
   environment?: Environment
+  /** 试运行模式（不实际执行部署） */
   dryRun?: boolean
+  /** 跳过健康检查 */
   skipHealthCheck?: boolean
+  /** 跳过钩子脚本执行 */
   skipHooks?: boolean
 }
 
+/**
+ * 部署器类
+ * 
+ * @description 基础部署器，提供多平台部署能力
+ * 
+ * @example
+ * ```typescript
+ * const deployer = new Deployer();
+ * const result = await deployer.deploy({
+ *   environment: 'production',
+ *   configFile: 'deploy.config.json'
+ * });
+ * ```
+ */
 export class Deployer {
   private configManager: ConfigManager
   private versionManager: VersionManager
@@ -32,6 +58,12 @@ export class Deployer {
   private composeGenerator: ComposeGenerator
   private deployLogger = createLogger('Deployer')
 
+  /**
+   * 创建部署器实例
+   * 
+   * @param options - 构造选项
+   * @param options.workDir - 工作目录，默认为当前目录
+   */
   constructor(options: { workDir?: string } = {}) {
     this.configManager = new ConfigManager({ workDir: options.workDir })
     this.versionManager = new VersionManager({ workDir: options.workDir })
@@ -43,6 +75,22 @@ export class Deployer {
 
   /**
    * 执行部署
+   * 
+   * @param options - 部署选项
+   * @returns 部署结果
+   * 
+   * @example
+   * ```typescript
+   * const result = await deployer.deploy({
+   *   environment: 'production',
+   *   dryRun: false,
+   *   skipHealthCheck: false
+   * });
+   * 
+   * if (result.success) {
+   *   console.log('部署成功！');
+   * }
+   * ```
    */
   async deploy(options: DeployOptions = {}): Promise<DeployResult> {
     const startTime = Date.now()
@@ -112,6 +160,11 @@ export class Deployer {
 
   /**
    * Docker 部署
+   * 
+   * @private
+   * @param config - 部署配置
+   * @param options - 部署选项
+   * @returns 部署结果
    */
   private async deployDocker(config: DeployConfig, options: DeployOptions): Promise<DeployResult> {
     this.deployLogger.info('🐳 Deploying with Docker...')
@@ -167,6 +220,11 @@ export class Deployer {
 
   /**
    * Docker Compose 部署
+   * 
+   * @private
+   * @param config - 部署配置
+   * @param options - 部署选项
+   * @returns 部署结果
    */
   private async deployDockerCompose(config: DeployConfig, options: DeployOptions): Promise<DeployResult> {
     this.deployLogger.info('🐳 Deploying with Docker Compose...')
@@ -201,11 +259,18 @@ export class Deployer {
 
   /**
    * Kubernetes 部署
+   * 
+   * @private
+   * @param config - 部署配置
+   * @param options - 部署选项
+   * @returns 部署结果
+   * 
+   * @todo 完整实现 Kubernetes 部署逻辑
    */
   private async deployKubernetes(config: DeployConfig, options: DeployOptions): Promise<DeployResult> {
     this.deployLogger.info('☸️  Deploying to Kubernetes...')
 
-    // K8s 部署将在后续实现
+    // TODO: K8s 部署将在后续实现
     this.deployLogger.warn('Kubernetes deployment not yet implemented')
 
     return {
@@ -220,6 +285,10 @@ export class Deployer {
 
   /**
    * 加载配置
+   * 
+   * @private
+   * @param options - 部署选项
+   * @returns 部署配置对象
    */
   private async loadConfig(options: DeployOptions): Promise<DeployConfig> {
     if (options.config) {
@@ -235,6 +304,10 @@ export class Deployer {
 
   /**
    * 执行健康检查
+   * 
+   * @private
+   * @param config - 部署配置
+   * @throws {Error} 当健康检查失败时抛出
    */
   private async performHealthCheck(config: DeployConfig): Promise<void> {
     if (!config.healthCheck) return
@@ -252,6 +325,11 @@ export class Deployer {
 
   /**
    * 执行钩子脚本
+   * 
+   * @private
+   * @param hooks - 钩子脚本命令列表
+   * @param type - 钩子类型（pre-deploy/post-deploy 等）
+   * @throws {Error} 当钩子执行失败时抛出
    */
   private async runHooks(hooks: string[] | undefined, type: string): Promise<void> {
     if (!hooks || hooks.length === 0) return
@@ -275,11 +353,21 @@ export class Deployer {
 
   /**
    * 回滚部署
+   * 
+   * @param version - 目标版本号
+   * @returns 回滚结果
+   * 
+   * @todo 完整实现回滚逻辑
+   * 
+   * @example
+   * ```typescript
+   * const result = await deployer.rollback('1.0.0');
+   * ```
    */
   async rollback(version: string): Promise<DeployResult> {
     this.deployLogger.info(`⏪ Rolling back to version: ${version}`)
 
-    // 回滚实现将在后续完成
+    // TODO: 回滚实现将在后续完成
     this.deployLogger.warn('Rollback not yet implemented')
 
     return {
@@ -294,6 +382,8 @@ export class Deployer {
 
   /**
    * 获取配置管理器
+   * 
+   * @returns 配置管理器实例
    */
   getConfigManager(): ConfigManager {
     return this.configManager
@@ -301,6 +391,8 @@ export class Deployer {
 
   /**
    * 获取版本管理器
+   * 
+   * @returns 版本管理器实例
    */
   getVersionManager(): VersionManager {
     return this.versionManager
@@ -308,6 +400,8 @@ export class Deployer {
 
   /**
    * 获取健康检查器
+   * 
+   * @returns 健康检查器实例
    */
   getHealthChecker(): HealthChecker {
     return this.healthChecker

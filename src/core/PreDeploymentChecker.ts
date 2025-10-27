@@ -1,5 +1,8 @@
 /**
  * 部署前置检查器
+ * @module core/PreDeploymentChecker
+ * 
+ * @description 在部署前执行一系列环境和配置检查，确保部署环境满足要求
  */
 
 import { exec } from 'child_process'
@@ -7,19 +10,47 @@ import { promisify } from 'util'
 import { logger } from '../utils/logger.js'
 import type { DeployConfig } from '../types/index.js'
 import { DeploymentError } from '../utils/errors.js'
+import {
+  MIN_NODE_MAJOR_VERSION,
+  MIN_DISK_SPACE,
+  BYTE_UNITS,
+  BYTES_PER_UNIT,
+} from '../constants/index.js'
 
 const execAsync = promisify(exec)
 
+/**
+ * 检查结果接口
+ */
 export interface CheckResult {
+  /** 检查项名称 */
   name: string
+  /** 是否通过检查 */
   passed: boolean
+  /** 检查结果消息 */
   message: string
+  /** 严重程度 */
   severity?: 'critical' | 'warning' | 'info'
 }
 
+/**
+ * 部署前置检查器类
+ * 
+ * @description 在部署前执行一系列检查，包括环境检查、平台检查、资源检查等
+ * 
+ * @example
+ * ```typescript
+ * const checker = new PreDeploymentChecker();
+ * const results = await checker.checkAll(config);
+ * ```
+ */
 export class PreDeploymentChecker {
   /**
    * 执行所有检查
+   * 
+   * @param config - 部署配置
+   * @returns 检查结果列表
+   * @throws {DeploymentError} 当有严重问题时抛出
    */
   async checkAll(config: DeployConfig): Promise<CheckResult[]> {
     logger.info('🔍 Running pre-deployment checks...')
@@ -78,6 +109,9 @@ export class PreDeploymentChecker {
 
   /**
    * 检查 Node.js 版本
+   * 
+   * @private
+   * @returns 检查结果
    */
   private async checkNodeVersion(): Promise<CheckResult> {
     try {
@@ -85,12 +119,12 @@ export class PreDeploymentChecker {
       const version = stdout.trim()
       const majorVersion = parseInt(version.replace('v', '').split('.')[0])
 
-      const passed = majorVersion >= 16
+      const passed = majorVersion >= MIN_NODE_MAJOR_VERSION
 
       return {
         name: 'Node.js Version',
         passed,
-        message: `${version} ${passed ? '(OK)' : '(Requires v16+)'}`,
+        message: `${version} ${passed ? '(OK)' : `(Requires v${MIN_NODE_MAJOR_VERSION}+)`}`,
         severity: passed ? 'info' : 'critical',
       }
     } catch {
@@ -193,10 +227,13 @@ export class PreDeploymentChecker {
 
   /**
    * 检查磁盘空间
+   * 
+   * @private
+   * @returns 检查结果
    */
   private async checkDiskSpace(): Promise<CheckResult> {
     try {
-      const minSpace = 1024 * 1024 * 1024 // 1GB
+      const minSpace = MIN_DISK_SPACE
 
       // 不同平台使用不同命令
       const isWindows = process.platform === 'win32'
@@ -388,19 +425,28 @@ export class PreDeploymentChecker {
   }
 
   /**
-   * 格式化字节
+   * 格式化字节数为人类可读格式
+   * 
+   * @private
+   * @param bytes - 字节数
+   * @returns 格式化后的字符串
+   * 
+   * @example
+   * ```typescript
+   * formatBytes(1024); // "1.00 KB"
+   * formatBytes(1048576); // "1.00 MB"
+   * ```
    */
   private formatBytes(bytes: number): string {
-    const units = ['B', 'KB', 'MB', 'GB', 'TB']
     let value = bytes
     let unitIndex = 0
 
-    while (value >= 1024 && unitIndex < units.length - 1) {
-      value /= 1024
+    while (value >= BYTES_PER_UNIT && unitIndex < BYTE_UNITS.length - 1) {
+      value /= BYTES_PER_UNIT
       unitIndex++
     }
 
-    return `${value.toFixed(2)} ${units[unitIndex]}`
+    return `${value.toFixed(2)} ${BYTE_UNITS[unitIndex]}`
   }
 }
 

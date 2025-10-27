@@ -39,6 +39,15 @@ export * from './visualization/index.js'
 // 分析器模块
 export * from './analyzer/index.js'
 
+// 通知模块
+export * from './notifications/index.js'
+
+// 模板系统
+export * from './templates/index.js'
+
+// 配置预览
+export * from './preview/index.js'
+
 // 类型定义
 export * from './types/index.js'
 

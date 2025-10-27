@@ -3,6 +3,7 @@
  */
 
 export * from './PrometheusIntegration.js'
+export * from './ResourceMonitor.js'
 
 
 
