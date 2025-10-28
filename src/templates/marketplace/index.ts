@@ -9,6 +9,8 @@ import { TemplateRegistry } from '../TemplateRegistry.js';
 import { expressTemplates } from './express.js';
 import { nextjsTemplates } from './nextjs.js';
 import { vueTemplates } from './vue.js';
+import { nestjsTemplates } from './nestjs.js';
+import { reactTemplates } from './react.js';
 
 /**
  * 初始化模板市场
@@ -36,17 +38,27 @@ export function initializeMarketplace(): void {
 
   // 注册 Vue 模板
   vueTemplates.forEach(template => registry.register(template));
+
+  // 注册 NestJS 模板
+  nestjsTemplates.forEach(template => registry.register(template));
+
+  // 注册 React 模板
+  reactTemplates.forEach(template => registry.register(template));
 }
 
 // 导出所有模板
 export * from './express.js';
 export * from './nextjs.js';
 export * from './vue.js';
+export * from './nestjs.js';
+export * from './react.js';
 
 // 导出模板列表
 export const allMarketplaceTemplates = [
   ...expressTemplates,
   ...nextjsTemplates,
   ...vueTemplates,
+  ...nestjsTemplates,
+  ...reactTemplates,
 ];
 

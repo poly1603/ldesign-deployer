@@ -1,0 +1,28 @@
+{
+  "name": "@ldesign/deployer-docs",
+  "version": "1.0.0",
+  "description": "LDesign Deployer Documentation",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vitepress dev",
+    "build": "vitepress build",
+    "preview": "vitepress preview",
+    "docs:dev": "vitepress dev",
+    "docs:build": "vitepress build",
+    "docs:preview": "vitepress preview"
+  },
+  "devDependencies": {
+    "vitepress": "^1.0.0",
+    "vue": "^3.4.0"
+  },
+  "keywords": [
+    "deployer",
+    "documentation",
+    "ldesign",
+    "deployment",
+    "ci-cd"
+  ],
+  "author": "LDesign Team",
+  "license": "MIT"
+}

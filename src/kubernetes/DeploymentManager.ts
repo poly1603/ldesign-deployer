@@ -138,6 +138,111 @@ export class DeploymentManager {
   }
 
   /**
+   * 获取 Pod 列表
+   */
+  async getPods(deploymentName: string, options: K8sDeployOptions): Promise<any[]> {
+    try {
+      const args: string[] = ['get', 'pods', '-l', `app=${deploymentName}`, '-o', 'json']
+
+      if (options.namespace) {
+        args.push('-n', options.namespace)
+      }
+
+      if (options.context) {
+        args.push('--context', options.context)
+      }
+
+      const { stdout } = await execAsync(`kubectl ${args.join(' ')}`)
+      const result = JSON.parse(stdout)
+      return result.items || []
+    } catch (error: any) {
+      logger.error('Failed to get pods:', error.message)
+      return []
+    }
+  }
+
+  /**
+   * 检查 Pod 健康状态
+   */
+  async checkPodHealth(deploymentName: string, options: K8sDeployOptions): Promise<boolean> {
+    const pods = await this.getPods(deploymentName, options)
+    
+    if (pods.length === 0) {
+      logger.warn('No pods found')
+      return false
+    }
+
+    const healthyPods = pods.filter(pod => {
+      const status = pod.status
+      const phase = status.phase
+      const conditions = status.conditions || []
+      
+      // 检查 Pod 是否 Running
+      if (phase !== 'Running') {
+        return false
+      }
+
+      // 检查所有容器是否 Ready
+      const readyCondition = conditions.find((c: any) => c.type === 'Ready')
+      if (!readyCondition || readyCondition.status !== 'True') {
+        return false
+      }
+
+      return true
+    })
+
+    const healthRate = healthyPods.length / pods.length
+    logger.info(`Pod health: ${healthyPods.length}/${pods.length} healthy (${(healthRate * 100).toFixed(0)}%)`)
+
+    return healthRate >= 0.8 // 至少 80% Pod 健康
+  }
+
+  /**
+   * 监控部署进度
+   */
+  async monitorRollout(deploymentName: string, options: K8sDeployOptions): Promise<boolean> {
+    logger.info(`Monitoring rollout for ${deploymentName}...`)
+
+    const maxAttempts = options.timeout ? Math.floor(options.timeout / 5) : 60 // 默认 5 分钟
+    let attempts = 0
+
+    while (attempts < maxAttempts) {
+      const status = await this.getStatus(deploymentName, options)
+      
+      if (!status) {
+        throw new Error('Failed to get deployment status')
+      }
+
+      const spec = status.spec
+      const statusObj = status.status
+      const desired = spec.replicas || 0
+      const current = statusObj.replicas || 0
+      const updated = statusObj.updatedReplicas || 0
+      const available = statusObj.availableReplicas || 0
+      const ready = statusObj.readyReplicas || 0
+
+      logger.info(`Rollout status: ${updated}/${desired} updated, ${available}/${desired} available, ${ready}/${desired} ready`)
+
+      // 检查是否全部就绪
+      if (updated === desired && available === desired && ready === desired) {
+        logger.success('Rollout completed successfully')
+        return true
+      }
+
+      // 检查是否有失败的 Pod
+      const healthy = await this.checkPodHealth(deploymentName, options)
+      if (!healthy && attempts > 3) {
+        throw new Error('Too many unhealthy pods detected')
+      }
+
+      attempts++
+      await new Promise(resolve => setTimeout(resolve, 5000)) // 等待 5 秒
+    }
+
+    throw new Error('Rollout timeout')
+  }
+
+  /**
    * 扩缩容
    */
   async scale(name: string, replicas: number, options: K8sDeployOptions): Promise<void> {
@@ -225,8 +330,38 @@ export class DeploymentManager {
       return ''
     }
   }
+
+  /**
+   * 完整部署流程（包含健康检查和监控）
+   */
+  async deployWithMonitoring(
+    manifestContent: string,
+    deploymentName: string,
+    options: K8sDeployOptions
+  ): Promise<boolean> {
+    logger.info('Starting deployment with monitoring...')
+
+    // 1. 检查 kubectl
+    const kubectlAvailable = await this.checkKubectl()
+    if (!kubectlAvailable) {
+      throw new Error('kubectl is not available')
+    }
+
+    // 2. 应用清单
+    await this.apply(manifestContent, options)
+
+    // 3. 监控滚动更新
+    if (!options.dryRun) {
+      await this.monitorRollout(deploymentName, options)
+
+      // 4. 最终健康检查
+      const healthy = await this.checkPodHealth(deploymentName, options)
+      if (!healthy) {
+        throw new Error('Final health check failed')
+      }
+    }
+
+    logger.success('Deployment completed successfully with all health checks passed')
+    return true
+  }
 }
-
-
-
-

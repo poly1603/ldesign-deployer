@@ -6,6 +6,8 @@
  */
 
 import { logger } from '../utils/logger.js'
+import { DeploymentManager } from '../kubernetes/DeploymentManager.js'
+import { HealthChecker } from '../core/HealthChecker.js'
 import type { BlueGreenDeployConfig, StrategyResult } from '../types/index.js'
 
 /**
@@ -33,6 +35,14 @@ import type { BlueGreenDeployConfig, StrategyResult } from '../types/index.js'
  * @see https://martinfowler.com/bliki/BlueGreenDeployment.html
  */
 export class BlueGreenStrategy {
+  private k8sManager: DeploymentManager
+  private healthChecker: HealthChecker
+
+  constructor() {
+    this.k8sManager = new DeploymentManager()
+    this.healthChecker = new HealthChecker()
+  }
+
   /**
    * 执行蓝绿部署
    * 
@@ -108,11 +118,27 @@ export class BlueGreenStrategy {
    * 
    * @private
    * @param config - 部署配置
-   * @todo 实现实际的绿色版本部署
    */
   private async deployGreen(config: BlueGreenDeployConfig): Promise<void> {
-    // TODO: 实现绿色版本部署
-    logger.debug('Green deployment placeholder')
+    logger.info(`Deploying green environment with version ${config.greenVersion}`)
+
+    // 构建绿色环境的清单
+    const greenManifest = this.buildGreenManifest(config)
+
+    // 部署到 K8s
+    if (config.platform === 'kubernetes') {
+      await this.k8sManager.deployWithMonitoring(
+        greenManifest,
+        `${config.appName}-green`,
+        {
+          namespace: config.namespace || 'default',
+          timeout: 300,
+          wait: true,
+        }
+      )
+    }
+
+    logger.success('Green environment deployed successfully')
   }
 
   /**
@@ -121,10 +147,47 @@ export class BlueGreenStrategy {
    * @private
    * @param config - 部署配置
    * @returns 健康检查是否通过
-   * @todo 实现实际的健康检查逻辑
    */
   private async healthCheck(config: BlueGreenDeployConfig): Promise<boolean> {
-    // TODO: 实现健康检查
+    logger.info('Running health check on green environment...')
+
+    // 如果配置了健康检查
+    if (config.healthCheck) {
+      const result = await this.healthChecker.check(config.healthCheck)
+      if (!result.healthy) {
+        logger.error(`Health check failed: ${result.message}`)
+        return false
+      }
+    }
+
+    // K8s Pod 健康检查
+    if (config.platform === 'kubernetes') {
+      const healthy = await this.k8sManager.checkPodHealth(
+        `${config.appName}-green`,
+        {
+          namespace: config.namespace || 'default',
+        }
+      )
+      if (!healthy) {
+        return false
+      }
+    }
+
+    // 等待稳定期（默认 30 秒）
+    const stabilityPeriod = config.stabilityPeriod || 30
+    logger.info(`Waiting ${stabilityPeriod}s for stability...`)
+    await new Promise(resolve => setTimeout(resolve, stabilityPeriod * 1000))
+
+    // 再次检查
+    if (config.healthCheck) {
+      const result = await this.healthChecker.check(config.healthCheck)
+      if (!result.healthy) {
+        logger.error('Health check failed after stability period')
+        return false
+      }
+    }
+
+    logger.success('Health check passed')
     return true
   }
 
@@ -133,11 +196,22 @@ export class BlueGreenStrategy {
    * 
    * @private
    * @param config - 部署配置
-   * @todo 实现流量切换逻辑（Service/Ingress/Load Balancer）
    */
   private async switchTraffic(config: BlueGreenDeployConfig): Promise<void> {
-    // TODO: 实现流量切换
-    logger.debug('Traffic switch placeholder')
+    logger.info('Switching traffic from blue to green...')
+
+    if (config.platform === 'kubernetes') {
+      // 更新 Service selector 指向绿色环境
+      const serviceManifest = this.buildServiceManifest(config, 'green')
+      
+      await this.k8sManager.apply(serviceManifest, {
+        namespace: config.namespace || 'default',
+      })
+
+      logger.success('Traffic switched to green environment')
+    } else {
+      logger.warn('Traffic switching not implemented for this platform')
+    }
   }
 
   /**
@@ -145,14 +219,109 @@ export class BlueGreenStrategy {
    * 
    * @private
    * @param config - 部署配置
-   * @todo 实现快速回滚逻辑
    */
   private async rollback(config: BlueGreenDeployConfig): Promise<void> {
-    // TODO: 实现回滚
-    logger.debug('Rollback placeholder')
+    logger.warn('Rolling back to blue environment...')
+
+    if (config.platform === 'kubernetes') {
+      // 恢复 Service 指向蓝色环境
+      const serviceManifest = this.buildServiceManifest(config, 'blue')
+      
+      await this.k8sManager.apply(serviceManifest, {
+        namespace: config.namespace || 'default',
+      })
+
+      // 删除绿色环境
+      await this.k8sManager.delete('deployment', `${config.appName}-green`, {
+        namespace: config.namespace || 'default',
+      })
+
+      logger.success('Rolled back to blue environment')
+    }
+  }
+
+  /**
+   * 构建绿色环境清单
+   * 
+   * @private
+   * @param config - 部署配置
+   * @returns Kubernetes 清单 YAML
+   */
+  private buildGreenManifest(config: BlueGreenDeployConfig): string {
+    return `
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${config.appName}-green
+  namespace: ${config.namespace || 'default'}
+  labels:
+    app: ${config.appName}
+    version: ${config.greenVersion}
+    environment: green
+spec:
+  replicas: ${config.replicas || 3}
+  selector:
+    matchLabels:
+      app: ${config.appName}
+      environment: green
+  template:
+    metadata:
+      labels:
+        app: ${config.appName}
+        version: ${config.greenVersion}
+        environment: green
+    spec:
+      containers:
+      - name: ${config.appName}
+        image: ${config.image}:${config.greenVersion}
+        ports:
+        - containerPort: ${config.port || 8080}
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        livenessProbe:
+          httpGet:
+            path: ${config.healthCheck?.path || '/health'}
+            port: ${config.port || 8080}
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: ${config.healthCheck?.path || '/health'}
+            port: ${config.port || 8080}
+          initialDelaySeconds: 5
+          periodSeconds: 5
+`
+  }
+
+  /**
+   * 构建 Service 清单
+   * 
+   * @private
+   * @param config - 部署配置
+   * @param targetEnvironment - 目标环境（blue/green）
+   * @returns Kubernetes Service YAML
+   */
+  private buildServiceManifest(config: BlueGreenDeployConfig, targetEnvironment: 'blue' | 'green'): string {
+    return `
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${config.appName}
+  namespace: ${config.namespace || 'default'}
+spec:
+  selector:
+    app: ${config.appName}
+    environment: ${targetEnvironment}
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: ${config.port || 8080}
+  type: ClusterIP
+`
   }
 }
-
-
-
-

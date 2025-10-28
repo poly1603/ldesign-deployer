@@ -4,13 +4,20 @@
 
 import { logger } from '../utils/logger.js'
 import { VersionHistory } from './VersionHistory.js'
+import { DeploymentManager } from '../kubernetes/DeploymentManager.js'
+import { exec } from 'child_process'
+import { promisify } from 'util'
 import type { DeployConfig, DeployResult, RollbackConfig } from '../types/index.js'
+
+const execAsync = promisify(exec)
 
 export class RollbackManager {
   private versionHistory: VersionHistory
+  private k8sManager: DeploymentManager
 
   constructor() {
     this.versionHistory = new VersionHistory()
+    this.k8sManager = new DeploymentManager()
   }
 
   /**
@@ -77,7 +84,39 @@ export class RollbackManager {
    */
   private async rollbackDocker(config: DeployConfig): Promise<void> {
     logger.info('Rolling back Docker deployment...')
-    // 实现 Docker 回滚逻辑
+
+    if (!config.docker?.image) {
+      throw new Error('Docker image not specified in config')
+    }
+
+    const containerName = config.name
+    const imageTag = config.docker.tag || config.version
+    const fullImage = `${config.docker.registry ? config.docker.registry + '/' : ''}${config.docker.image}:${imageTag}`
+
+    try {
+      // 1. 停止当前容器
+      logger.info(`Stopping current container: ${containerName}`)
+      try {
+        await execAsync(`docker stop ${containerName}`)
+        await execAsync(`docker rm ${containerName}`)
+      } catch {
+        // 容器可能不存在，忽略错误
+      }
+
+      // 2. 拉取目标版本镜像
+      logger.info(`Pulling image: ${fullImage}`)
+      await execAsync(`docker pull ${fullImage}`)
+
+      // 3. 启动新容器
+      logger.info(`Starting container with image: ${fullImage}`)
+      const port = config.docker.compose?.services?.[config.name]?.ports?.[0]?.split(':')[0] || '8080'
+      await execAsync(`docker run -d --name ${containerName} -p ${port}:${port} ${fullImage}`)
+
+      logger.success('Docker rollback completed')
+    } catch (error: any) {
+      logger.error('Docker rollback failed:', error.message)
+      throw error
+    }
   }
 
   /**
@@ -86,23 +125,40 @@ export class RollbackManager {
   private async rollbackKubernetes(config: DeployConfig, revision?: number): Promise<void> {
     logger.info('Rolling back Kubernetes deployment...')
 
-    // 使用 kubectl rollout undo
-    const { exec } = await import('child_process')
-    const { promisify } = await import('util')
-    const execAsync = promisify(exec)
-
     const args = ['rollout', 'undo', 'deployment', config.name]
+    const namespace = config.kubernetes?.namespace || 'default'
 
-    if (config.kubernetes?.namespace) {
-      args.push('-n', config.kubernetes.namespace)
+    if (namespace) {
+      args.push('-n', namespace)
     }
 
     if (revision) {
       args.push(`--to-revision=${revision}`)
     }
 
-    await execAsync(`kubectl ${args.join(' ')}`)
-    logger.success('Kubernetes rollback completed')
+    try {
+      // 1. 执行回滚
+      const { stdout } = await execAsync(`kubectl ${args.join(' ')}`)
+      logger.info(stdout)
+
+      // 2. 等待回滚完成
+      logger.info('Waiting for rollback to complete...')
+      await this.k8sManager.monitorRollout(config.name, {
+        namespace,
+        timeout: 300,
+      })
+
+      // 3. 验证回滚后的健康状态
+      const healthy = await this.k8sManager.checkPodHealth(config.name, { namespace })
+      if (!healthy) {
+        throw new Error('Rollback completed but pods are not healthy')
+      }
+
+      logger.success('Kubernetes rollback completed successfully')
+    } catch (error: any) {
+      logger.error('Kubernetes rollback failed:', error.message)
+      throw error
+    }
   }
 
   /**
@@ -111,8 +167,66 @@ export class RollbackManager {
   getVersionHistory(): VersionHistory {
     return this.versionHistory
   }
+
+  /**
+   * 获取可用的回滚版本列表
+   */
+  async getAvailableVersions(): Promise<Array<{ version: string; timestamp: string; status: string }>> {
+    const history = await this.versionHistory.getAll()
+    return history
+      .filter(h => h.status === 'success')
+      .map(h => ({
+        version: h.version,
+        timestamp: h.timestamp,
+        status: h.status,
+      }))
+  }
+
+  /**
+   * 预览回滚影响
+   */
+  async previewRollback(targetVersion?: string): Promise<{
+    currentVersion?: string
+    targetVersion?: string
+    changes: string[]
+    risks: string[]
+  }> {
+    const history = await this.versionHistory.getAll()
+    const current = history.find(h => h.status === 'success')
+    const target = targetVersion
+      ? await this.versionHistory.getVersion(targetVersion)
+      : await this.versionHistory.getPreviousVersion()
+
+    const changes: string[] = []
+    const risks: string[] = []
+
+    if (current && target) {
+      changes.push(`Version: ${current.version} → ${target.version}`)
+      changes.push(`Timestamp: ${current.timestamp} → ${target.timestamp}`)
+
+      // 分析风险
+      if (target.config.platform !== current.config.platform) {
+        risks.push('⚠️ Platform change detected')
+      }
+
+      if (target.config.environment !== current.config.environment) {
+        risks.push('⚠️ Environment change detected')
+      }
+    }
+
+    return {
+      currentVersion: current?.version,
+      targetVersion: target?.version,
+      changes,
+      risks,
+    }
+  }
+
+  /**
+   * 快速回滚（回滚到上一个版本）
+   */
+  async quickRollback(): Promise<DeployResult> {
+    logger.info('⚡ Executing quick rollback...')
+    return this.rollback({})
+  }
 }
-
-
-
-
