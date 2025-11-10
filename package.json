@@ -42,8 +42,7 @@
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage",
     "test:run": "vitest run",
-    "lint": "tsc --noEmit",
-    "prepublishOnly": "npm run lint && npm run test:run && npm run build"
+    "lint": "tsc --noEmit"
   },
   "dependencies": {
     "cac": "^6.7.14",
