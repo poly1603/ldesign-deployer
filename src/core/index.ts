@@ -8,4 +8,6 @@ export * from './VersionManager.js'
 export * from './HealthChecker.js'
 export * from './PreDeploymentChecker.js'
 export * from './EnhancedDeployer.js'
+export * from './ParallelDeployer.js'
+export * from './BackupManager.js'
 

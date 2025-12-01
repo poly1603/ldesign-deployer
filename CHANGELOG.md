@@ -2,6 +2,67 @@
 
 All notable changes to @ldesign/deployer will be documented in this file.
 
+## [0.4.0] - 2025-12
+
+### ✨ 新增功能
+
+#### SSH/SFTP 部署
+- 新增 `SSHClient` SSH 客户端
+- 新增 `SFTPClient` SFTP 文件传输
+- 新增 `SSHDeployer` Capistrano 风格部署
+- 支持跳板机、私钥认证
+- CLI 命令: `ssh:deploy`, `ssh:rollback`
+
+#### 云平台部署
+- 新增 `ECSDeployer` AWS ECS 部署
+- 新增 `CloudRunDeployer` GCP Cloud Run 部署
+- 支持任务定义更新、服务稳定性等待
+
+#### 部署指标与分析
+- 新增 `MetricsCollector` 指标收集器
+- 新增 `MetricsAnalyzer` 指标分析器
+- 支持成功率、P50/P90/P99 延迟统计
+- 支持部署健康度评分
+- CLI 命令: `metrics:stats`, `metrics:health`
+
+#### 企业微信通知
+- 新增 `WeChatWorkNotifier` 企业微信机器人通知
+- 支持 Markdown 和文本格式
+- 支持 @ 用户和 @ 所有人
+
+#### 配置加密
+- 新增 `ConfigEncryptor` 配置加密器
+- 新增 `SecretEncryptor` 密钥加密器
+- 新增 `ConfigFileEncryptor` 配置文件加密
+- 使用 AES-256-GCM 加密算法
+- CLI 命令: `encrypt:config`, `encrypt:decrypt`
+
+#### 并行部署
+- 新增 `ParallelDeployer` 并行部署器
+- 支持多环境同时部署
+- 支持并发控制和失败停止
+- CLI 命令: `parallel`
+
+#### 备份管理
+- 新增 `BackupManager` 备份管理器
+- 支持压缩备份和恢复
+- 支持自动清理旧备份
+- CLI 命令: `backup:create`, `backup:list`, `backup:restore`
+
+### 🔧 改进
+
+- 更新主入口导出新模块
+- 添加 10+ 个新 CLI 命令
+- 优化模块组织结构
+
+### 📊 统计
+
+- **新增文件:** 20+ 个
+- **新增 CLI 命令:** 10+ 个
+- **功能模块:** 14 → 18 (+29%)
+
+---
+
 ## [0.3.0] - 2025-01
 
 ### ✨ 新增功能

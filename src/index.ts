@@ -48,6 +48,15 @@ export * from './templates/index.js'
 // 配置预览
 export * from './preview/index.js'
 
+// SSH 部署
+export * from './ssh/index.js'
+
+// 云平台部署
+export * from './cloud/index.js'
+
+// 部署指标（使用命名空间避免冲突）
+export * as Metrics from './metrics/index.js'
+
 // 类型定义
 export * from './types/index.js'
 

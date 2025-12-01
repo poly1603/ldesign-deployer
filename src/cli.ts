@@ -762,6 +762,284 @@ cli
   })
 
 /**
+ * ssh 命令组 - SSH 部署
+ */
+cli
+  .command('ssh:deploy <source>', 'Deploy via SSH/SFTP')
+  .option('--host <host>', 'SSH host')
+  .option('--user <user>', 'SSH username')
+  .option('--key <path>', 'SSH private key path')
+  .option('--path <path>', 'Remote deploy path')
+  .option('--version <version>', 'Version to deploy')
+  .action(async (source: string, options) => {
+    try {
+      const { SSHDeployer } = await import('./ssh/index.js')
+
+      const deployer = new SSHDeployer({
+        connection: {
+          host: options.host,
+          username: options.user,
+          privateKeyPath: options.key,
+        },
+        deployPath: options.path,
+      })
+
+      const result = await deployer.deploy(source, options.version || '1.0.0')
+
+      if (!result.success) {
+        logger.error('SSH deployment failed')
+        process.exit(1)
+      }
+    } catch (error: any) {
+      logger.error('SSH deployment error:', error.message)
+      process.exit(1)
+    }
+  })
+
+cli
+  .command('ssh:rollback', 'Rollback SSH deployment')
+  .option('--host <host>', 'SSH host')
+  .option('--user <user>', 'SSH username')
+  .option('--key <path>', 'SSH private key path')
+  .option('--path <path>', 'Remote deploy path')
+  .action(async (options) => {
+    try {
+      const { SSHDeployer } = await import('./ssh/index.js')
+
+      const deployer = new SSHDeployer({
+        connection: {
+          host: options.host,
+          username: options.user,
+          privateKeyPath: options.key,
+        },
+        deployPath: options.path,
+      })
+
+      const result = await deployer.rollback()
+
+      if (!result.success) {
+        logger.error('SSH rollback failed')
+        process.exit(1)
+      }
+    } catch (error: any) {
+      logger.error('SSH rollback error:', error.message)
+      process.exit(1)
+    }
+  })
+
+/**
+ * backup 命令组 - 备份管理
+ */
+cli
+  .command('backup:create <source>', 'Create a backup')
+  .option('--version <version>', 'Version label')
+  .option('--description <desc>', 'Backup description')
+  .action(async (source: string, options) => {
+    try {
+      const { BackupManager } = await import('./core/BackupManager.js')
+
+      const backup = new BackupManager()
+      const info = await backup.create(source, options.version, options.description)
+
+      logger.success(`✅ Backup created: ${info.id}`)
+    } catch (error: any) {
+      logger.error('Backup creation failed:', error.message)
+      process.exit(1)
+    }
+  })
+
+cli
+  .command('backup:list', 'List all backups')
+  .action(async () => {
+    try {
+      const { BackupManager } = await import('./core/BackupManager.js')
+
+      const backup = new BackupManager()
+      const list = await backup.list()
+
+      if (list.length === 0) {
+        logger.info('No backups found')
+        return
+      }
+
+      logger.info(`\n📦 Backups (${list.length}):\n`)
+      list.forEach((b, i) => {
+        logger.info(`${i + 1}. ${b.id}`)
+        logger.info(`   Version: ${b.version || 'N/A'}`)
+        logger.info(`   Size: ${(b.size / 1024 / 1024).toFixed(2)} MB`)
+        logger.info(`   Created: ${b.timestamp.toLocaleString()}`)
+        logger.info('')
+      })
+    } catch (error: any) {
+      logger.error('Failed to list backups:', error.message)
+      process.exit(1)
+    }
+  })
+
+cli
+  .command('backup:restore <id> <target>', 'Restore a backup')
+  .action(async (id: string, target: string) => {
+    try {
+      const { BackupManager } = await import('./core/BackupManager.js')
+
+      const backup = new BackupManager()
+      await backup.restore(id, target)
+
+      logger.success(`✅ Backup restored to: ${target}`)
+    } catch (error: any) {
+      logger.error('Backup restoration failed:', error.message)
+      process.exit(1)
+    }
+  })
+
+/**
+ * metrics 命令组 - 部署指标
+ */
+cli
+  .command('metrics:stats', 'Show deployment statistics')
+  .option('--days <days>', 'Number of days to analyze', { default: '30' })
+  .action(async (options) => {
+    try {
+      const { MetricsCollector, MetricsAnalyzer } = await import('./metrics/index.js')
+
+      const collector = new MetricsCollector()
+      const analyzer = new MetricsAnalyzer()
+
+      const records = await collector.query({
+        timeRange: 'month',
+      })
+
+      if (records.length === 0) {
+        logger.info('No deployment records found')
+        return
+      }
+
+      const stats = analyzer.calculateStats(records)
+      console.log(analyzer.formatStatsReport(stats))
+    } catch (error: any) {
+      logger.error('Failed to get metrics:', error.message)
+      process.exit(1)
+    }
+  })
+
+cli
+  .command('metrics:health', 'Analyze deployment health')
+  .action(async () => {
+    try {
+      const { MetricsCollector, MetricsAnalyzer } = await import('./metrics/index.js')
+
+      const collector = new MetricsCollector()
+      const analyzer = new MetricsAnalyzer()
+
+      const records = await collector.query({ timeRange: 'month' })
+      const health = analyzer.analyzeHealth(records)
+
+      console.log(analyzer.formatHealthReport(health))
+    } catch (error: any) {
+      logger.error('Failed to analyze health:', error.message)
+      process.exit(1)
+    }
+  })
+
+/**
+ * parallel 命令 - 并行部署
+ */
+cli
+  .command('parallel <environments...>', 'Deploy to multiple environments in parallel')
+  .option('--config <file>', 'Config file path')
+  .option('--concurrency <n>', 'Max concurrent deployments', { default: '2' })
+  .option('--stop-on-failure', 'Stop if any deployment fails')
+  .action(async (environments: string[], options) => {
+    try {
+      const { ParallelDeployer } = await import('./core/ParallelDeployer.js')
+
+      const deployer = new ParallelDeployer()
+
+      const result = await deployer.deploy({
+        environments: environments as any[],
+        configFile: options.config,
+        concurrency: parseInt(options.concurrency),
+        stopOnFailure: options.stopOnFailure,
+        onProgress: (event) => {
+          logger.info(`[${event.environment}] ${event.status}: ${event.message}`)
+        },
+      })
+
+      if (!result.success) {
+        process.exit(1)
+      }
+    } catch (error: any) {
+      logger.error('Parallel deployment error:', error.message)
+      process.exit(1)
+    }
+  })
+
+/**
+ * encrypt 命令组 - 配置加密
+ */
+cli
+  .command('encrypt:config <file>', 'Encrypt sensitive values in config file')
+  .option('--password <password>', 'Encryption password (or use DEPLOY_ENCRYPT_KEY env)')
+  .option('--output <file>', 'Output file')
+  .action(async (file: string, options) => {
+    try {
+      const { ConfigFileEncryptor } = await import('./utils/encryption.js')
+      const { readFile, writeFile } = await import('./utils/file-system.js')
+
+      const password = options.password || process.env.DEPLOY_ENCRYPT_KEY
+      if (!password) {
+        logger.error('No password provided. Use --password or set DEPLOY_ENCRYPT_KEY')
+        process.exit(1)
+      }
+
+      const content = await readFile(file)
+      const config = JSON.parse(content)
+
+      const encryptor = new ConfigFileEncryptor(password)
+      const encrypted = encryptor.encryptSensitive(config)
+
+      const output = options.output || file.replace('.json', '.encrypted.json')
+      await writeFile(output, JSON.stringify(encrypted, null, 2))
+
+      logger.success(`✅ Encrypted config saved to: ${output}`)
+    } catch (error: any) {
+      logger.error('Encryption failed:', error.message)
+      process.exit(1)
+    }
+  })
+
+cli
+  .command('encrypt:decrypt <file>', 'Decrypt config file')
+  .option('--password <password>', 'Decryption password (or use DEPLOY_ENCRYPT_KEY env)')
+  .option('--output <file>', 'Output file')
+  .action(async (file: string, options) => {
+    try {
+      const { ConfigFileEncryptor } = await import('./utils/encryption.js')
+      const { readFile, writeFile } = await import('./utils/file-system.js')
+
+      const password = options.password || process.env.DEPLOY_ENCRYPT_KEY
+      if (!password) {
+        logger.error('No password provided. Use --password or set DEPLOY_ENCRYPT_KEY')
+        process.exit(1)
+      }
+
+      const content = await readFile(file)
+      const config = JSON.parse(content)
+
+      const encryptor = new ConfigFileEncryptor(password)
+      const decrypted = encryptor.decryptSensitive(config)
+
+      const output = options.output || file.replace('.encrypted.json', '.decrypted.json')
+      await writeFile(output, JSON.stringify(decrypted, null, 2))
+
+      logger.success(`✅ Decrypted config saved to: ${output}`)
+    } catch (error: any) {
+      logger.error('Decryption failed:', error.message)
+      process.exit(1)
+    }
+  })
+
+/**
  * 运行 CLI
  */
 export async function run(): Promise<void> {

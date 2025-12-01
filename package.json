@@ -1,6 +1,6 @@
 {
   "name": "@ldesign/deployer",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "LDesign 企业级部署工具 - Docker/K8s 部署、CI/CD 模板、蓝绿/金丝雀发布、智能通知、配置模板市场",
   "keywords": [
     "ldesign",

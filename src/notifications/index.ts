@@ -12,6 +12,7 @@ export * from './WebhookNotifier.js'
 export * from './SlackNotifier.js'
 export * from './DingTalkNotifier.js'
 export * from './EmailNotifier.js'
+export * from './WeChatWorkNotifier.js'
 
 // 便捷导出
 export { BaseNotifier } from './BaseNotifier.js';
